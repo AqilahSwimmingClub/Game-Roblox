@@ -162,7 +162,7 @@ export function masukSesi(prefill: string, submit: (code: string) => Promise<str
           'div',
           { class: 'row', style: 'gap:18px;align-items:center;flex-wrap:wrap;justify-content:center' },
           h('div', { class: 'col desk-only', style: 'align-items:center' }, edo(96), h('div', { class: 'bubble' }, 'Minta kode dari gurumu, ya!')),
-          h('div', { class: 'panel card col pop', style: 'align-items:stretch' }, h('h2', { class: 'center', style: 'font-size:32px' }, 'Masuk ke Kelas'), h('p', { class: 'muted center', style: 'margin:0;font-weight:800' }, 'Ketik kode kelas dari gurumu'), boxes, err, go),
+          h('div', { class: 'panel card col pop', style: 'align-items:stretch' }, h('h2', { class: 'center', style: 'font-size:32px' }, 'Masuk ke Kelas'), h('p', { class: 'muted center', style: 'margin:0;font-weight:800' }, 'Ketik kode kelas dari gurumu'), boxes, err, go, btn('COBA DEMO KOTA 3D · TANPA KODE', 'biru', () => { window.location.href = '/demo.html'; }, { style: 'font-size:15px;margin-top:8px' }), h('p', { class: 'muted center', style: 'font-size:12px;margin:0' }, 'Mode demo mandiri: tanpa multiplayer dan nilai resmi.')),
         ),
       ),
     );
