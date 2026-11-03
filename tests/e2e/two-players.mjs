@@ -124,10 +124,10 @@ try {
     await teacher.getByRole('button', { name: /Setujui Semua/ }).click();
     await teacher.getByText('2 siswa online').waitFor({ timeout: 15000 });
   });
-  await step('Siswa memilih karakter berbeda (Astronot & Srikandi Cahaya) → ruang tunggu → SIAP', () => Promise.all([studentPick(a, 0), studentPick(b, 4)]));
+  await step('Siswa memilih karakter berbeda (Astronot & Superhero Putri) → ruang tunggu → SIAP', () => Promise.all([studentPick(a, 0), studentPick(b, 4)]));
   await step('Dashboard menampilkan karakter pilihan tiap siswa', async () => {
-    await teacher.getByRole('cell', { name: 'Astronot Bintang' }).waitFor({ timeout: 15000 });
-    await teacher.getByRole('cell', { name: 'Srikandi Cahaya' }).waitFor({ timeout: 15000 });
+    await teacher.getByRole('cell', { name: 'Astronot', exact: true }).waitFor({ timeout: 15000 });
+    await teacher.getByRole('cell', { name: 'Superhero Putri' }).waitFor({ timeout: 15000 });
     await shot(teacher, 'g3b-karakter');
   });
 

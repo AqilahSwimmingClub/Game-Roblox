@@ -245,272 +245,320 @@ function holdR(k: Kit, fn: (k: Kit) => void) {
   fn(k);
 }
 
-// ───────────────── definisi 20 karakter ─────────────────
+/** Kacamata: bingkai di depan mata, mata digambar ulang di atas lensa. */
+function glasses(k: Kit, frame = '#1E2A4A') {
+  k.sym('head', 0.22, 0.18, 0.02, frame, 0.14, 0.37, 0.31);
+  k.sym('head', 0.16, 0.12, 0.02, '#DDEBF7', 0.14, 0.37, 0.318);
+  k.box('head', 0.08, 0.03, 0.02, frame, 0, 0.39, 0.315);
+  k.sym('head', 0.07, 0.09, 0.02, '#1E2A4A', 0.13, 0.36, 0.327);
+}
+/** Rok panjang semata kaki (seragam berjilbab). */
+function longSkirt(k: Kit, c: string) {
+  k.box('body', 0.8, 0.56, 0.46, c, 0, 0.6);
+  k.pair('leg', 0.31, 0.36, 0.33, c, 0, -0.36);
+}
+function belt(k: Kit, c = '#3E2A1A', buckle = '#C9A227') {
+  k.box('body', 0.74, 0.08, 0.42, c, 0, 0.82);
+  k.box('body', 0.1, 0.08, 0.03, buckle, 0, 0.82, 0.215);
+}
+/** Rambut kepang (garis kepang di kepala + dua kepang menjuntai). */
+function braids(k: Kit, c: string) {
+  k.box('head', 0.66, 0.12, 0.64, c, 0, 0.67);
+  for (const x of [-0.24, -0.08, 0.08, 0.24]) k.box('head', 0.08, 0.04, 0.66, '#1A0F08', x, 0.735);
+  k.box('head', 0.66, 0.34, 0.1, c, 0, 0.5, -0.28);
+  k.box('head', 0.62, 0.08, 0.06, c, 0, 0.6, 0.3);
+  for (const x of [-0.2, 0.2]) for (let i = 0; i < 4; i++) k.box('head', 0.12, 0.12, 0.12, i % 2 ? c : '#1A0F08', x, 0.32 - i * 0.12, -0.36);
+}
+
+// ───────────────── definisi 20 karakter (mengikuti gambar referensi; identitas waralaba diganti versi EDUVERSE) ─────────────────
 const HAIR_DARK = '#2D1B10';
 const HAIR_BROWN = '#5A3418';
 type Builder = (k: Kit, skin: string) => void;
 
 const BUILDERS: Builder[] = [
-  // 0 Astronot Bintang
+  // 0 Astronot / Space Explorer — baju putih, visor biru, panel dada, ransel oksigen, bendera merah-putih
   (k) => {
     const suit = '#F4F7FB';
-    human(k, { skin: suit, top: suit, bottom: suit, shoe: '#8C96A8', sleeve: 'panjang' });
-    k.pair('arm', 0.26, 0.16, 0.3, '#8C96A8', 0, -0.66); // sarung tangan
-    k.pair('leg', 0.32, 0.08, 0.34, '#FF8A3D', 0, -0.4); // gelang lutut
-    k.box('body', 0.4, 0.24, 0.04, '#3BA7FF', 0, 1.24, 0.21); // panel kontrol
-    k.sym('body', 0.06, 0.06, 0.03, '#FFC93C', 0.1, 1.27, 0.23);
-    k.box('body', 0.06, 0.06, 0.03, '#E53935', 0, 1.2, 0.23);
-    k.box('body', 0.56, 0.62, 0.26, '#DCE3EE', 0, 1.14, -0.33); // tabung oksigen
-    k.sym('body', 0.16, 0.5, 0.16, '#FF8A3D', 0.15, 1.16, -0.48);
-    // helm (wajah tertutup visor)
-    k.box('head', 0.8, 0.76, 0.76, suit, 0, 0.34);
-    k.box('head', 0.6, 0.42, 0.04, '#1B3A6B', 0, 0.36, 0.38);
-    k.box('head', 0.16, 0.1, 0.02, '#8FD0FF', -0.15, 0.48, 0.405);
-    k.box('head', 0.06, 0.22, 0.06, '#8C96A8', 0.3, 0.84); // antena helm
-    k.box('head', 0.1, 0.1, 0.1, '#FF8A3D', 0.3, 0.98);
+    human(k, { skin: suit, top: suit, bottom: suit, shoe: '#C9D3E0', sleeve: 'panjang' });
+    k.pair('arm', 0.26, 0.16, 0.3, '#DCE3EE', 0, -0.66);
+    k.pair('arm', 0.27, 0.05, 0.31, '#E53935', 0, -0.48);
+    k.pair('leg', 0.32, 0.05, 0.34, '#E53935', 0, -0.44);
+    k.pair('leg', 0.33, 0.2, 0.36, '#DCE3EE', 0, -0.62);
+    k.box('body', 0.4, 0.26, 0.04, '#DCE3EE', 0, 1.22, 0.21); // panel kontrol
+    k.sym('body', 0.08, 0.08, 0.03, '#E53935', 0.1, 1.26, 0.235);
+    k.sym('body', 0.08, 0.06, 0.03, '#3BA7FF', 0.1, 1.15, 0.235);
+    k.box('body', 0.06, 0.06, 0.03, '#FFFFFF', 0, 1.26, 0.235);
+    k.box('armR', 0.02, 0.07, 0.12, '#E53935', 0.13, -0.12, 0); // bendera merah-putih di lengan
+    k.box('armR', 0.02, 0.07, 0.12, '#FFFFFF', 0.13, -0.19, 0);
+    k.box('body', 0.6, 0.66, 0.28, '#E3E8F0', 0, 1.14, -0.34); // ransel oksigen
+    k.box('body', 0.4, 0.12, 0.04, '#E53935', 0, 1.3, -0.49);
+    k.box('head', 0.82, 0.78, 0.78, suit, 0, 0.34); // helm
+    k.box('head', 0.62, 0.48, 0.04, '#1565C0', 0, 0.36, 0.39);
+    k.box('head', 0.5, 0.36, 0.02, '#2F8BE6', 0, 0.38, 0.405);
+    k.box('head', 0.16, 0.1, 0.02, '#BFE3FF', -0.15, 0.5, 0.415);
+    k.sym('head', 0.06, 0.24, 0.24, '#DCE3EE', 0.42, 0.36);
   },
-  // 1 Robo Neon (robot siber)
+  // 1 Robot Cyber — zirah merah & hitam, visor hijau menyala
   (k) => {
-    const m = '#243B6B';
-    const glow = '#38E1FF';
-    k.pair('leg', 0.3, 0.62, 0.32, m, 0, -0.31);
-    k.pair('leg', 0.32, 0.04, 0.34, glow, 0, -0.32);
-    k.pair('leg', 0.34, 0.16, 0.42, '#15233F', 0, -0.7, 0.03);
-    k.box('body', 0.76, 0.74, 0.42, m, 0, 1.14);
-    k.box('body', 0.3, 0.3, 0.03, glow, 0, 1.2, 0.215);
-    k.box('body', 0.18, 0.18, 0.03, '#FFFFFF', 0, 1.2, 0.225);
-    k.sym('body', 0.04, 0.6, 0.03, glow, 0.3, 1.14, 0.215);
-    k.pair('arm', 0.26, 0.62, 0.28, m, 0, -0.3);
-    k.pair('arm', 0.28, 0.04, 0.3, glow, 0, -0.32);
-    k.pair('arm', 0.24, 0.14, 0.26, '#15233F', 0, -0.68);
-    k.box('head', 0.66, 0.6, 0.6, m, 0, 0.32);
-    k.box('head', 0.54, 0.26, 0.03, '#0B1430', 0, 0.36, 0.31); // layar wajah
-    k.sym('head', 0.12, 0.08, 0.02, glow, 0.12, 0.38, 0.33);
-    k.box('head', 0.2, 0.03, 0.02, glow, 0, 0.27, 0.33);
-    k.sym('head', 0.06, 0.24, 0.24, '#15233F', 0.35, 0.34);
-    k.box('head', 0.04, 0.28, 0.04, '#8C96A8', 0.2, 0.76, 0);
-    k.box('head', 0.09, 0.09, 0.09, glow, 0.2, 0.92, 0);
+    const red = '#C62828';
+    const dark = '#262A33';
+    const glow = '#39FF6A';
+    k.pair('leg', 0.3, 0.62, 0.32, dark, 0, -0.31);
+    k.pair('leg', 0.33, 0.26, 0.35, red, 0, -0.2);
+    k.pair('leg', 0.34, 0.18, 0.42, red, 0, -0.7, 0.03);
+    k.box('body', 0.76, 0.74, 0.42, red, 0, 1.14);
+    k.box('body', 0.52, 0.34, 0.03, dark, 0, 1.0, 0.215);
+    for (const y of [0.9, 1.0, 1.1]) k.box('body', 0.4, 0.04, 0.035, '#3A404C', 0, y, 0.23);
+    k.box('body', 0.22, 0.14, 0.04, glow, 0, 1.28, 0.23); // inti dada hijau
+    k.sym('body', 0.3, 0.16, 0.5, red, 0.42, 1.5); // pelindung bahu
+    k.pair('arm', 0.24, 0.62, 0.27, dark, 0, -0.3);
+    k.pair('arm', 0.28, 0.3, 0.31, red, 0, -0.5);
+    k.pair('arm', 0.29, 0.04, 0.32, glow, 0, -0.36);
+    k.box('head', 0.64, 0.62, 0.62, red, 0, 0.32);
+    k.box('head', 0.56, 0.16, 0.04, glow, 0, 0.38, 0.32); // visor
+    k.box('head', 0.3, 0.14, 0.04, dark, 0, 0.16, 0.32);
+    k.sym('head', 0.1, 0.32, 0.3, dark, 0.36, 0.36); // telinga helm
+    k.box('head', 0.12, 0.2, 0.5, dark, 0, 0.7, 0);
   },
-  // 2 Robo Klasik (robot retro)
+  // 2 Robot Retro — logam biru keabu-abuan, dua antena, layar dada gelombang hijau, capit
   (k) => {
-    const red = '#D9483B';
-    const steel = '#C9D3E0';
-    k.pair('leg', 0.26, 0.6, 0.28, steel, 0, -0.32);
-    for (const y of [-0.18, -0.36]) k.pair('leg', 0.3, 0.04, 0.32, '#8C96A8', 0, y);
-    k.pair('leg', 0.36, 0.16, 0.44, red, 0, -0.7, 0.03);
-    k.box('body', 0.8, 0.76, 0.46, red, 0, 1.14);
-    k.box('body', 0.44, 0.34, 0.03, steel, 0, 1.18, 0.24);
-    k.sym('body', 0.1, 0.1, 0.04, '#FFC93C', 0.11, 1.24, 0.26);
-    k.box('body', 0.3, 0.05, 0.04, '#2FBF71', 0, 1.08, 0.26);
-    k.sym('body', 0.08, 0.08, 0.08, '#8C96A8', 0.33, 1.45, 0.2); // baut
-    k.pair('arm', 0.2, 0.56, 0.22, steel, 0, -0.3);
-    k.pair('arm', 0.3, 0.16, 0.3, red, 0, -0.66);
-    k.box('head', 0.66, 0.54, 0.58, steel, 0, 0.29);
-    k.sym('head', 0.16, 0.16, 0.03, '#1E2A4A', 0.14, 0.34, 0.3);
-    k.sym('head', 0.07, 0.07, 0.03, '#FFC93C', 0.14, 0.34, 0.315);
-    k.box('head', 0.3, 0.06, 0.03, '#1E2A4A', 0, 0.16, 0.3);
-    k.sym('head', 0.08, 0.2, 0.2, red, 0.36, 0.3);
-    k.box('head', 0.05, 0.26, 0.05, '#8C96A8', 0, 0.68);
-    k.box('head', 0.14, 0.14, 0.14, '#FFC93C', 0, 0.86);
+    const steel = '#8EA4BF';
+    const dark = '#4A5B70';
+    k.pair('leg', 0.24, 0.6, 0.26, steel, 0, -0.32);
+    for (const y of [-0.16, -0.32, -0.48]) k.pair('leg', 0.28, 0.04, 0.3, dark, 0, y);
+    k.pair('leg', 0.34, 0.16, 0.42, dark, 0, -0.7, 0.03);
+    k.box('body', 0.8, 0.76, 0.46, steel, 0, 1.14);
+    k.box('body', 0.46, 0.32, 0.03, '#1E2A3A', 0, 1.2, 0.24); // layar
+    for (const [x, y] of [[-0.16, 1.16], [-0.1, 1.24], [-0.04, 1.14], [0.02, 1.28], [0.08, 1.18], [0.14, 1.22]] as const)
+      k.box('body', 0.05, 0.05, 0.03, '#39E07A', x, y, 0.255);
+    for (const [x, c] of [[-0.14, '#E53935'], [0, '#FFC93C'], [0.14, '#2FBF71']] as const) k.box('body', 0.07, 0.07, 0.04, c, x, 0.98, 0.25);
+    k.pair('arm', 0.18, 0.5, 0.2, steel, 0, -0.27);
+    for (const y of [-0.16, -0.34]) k.pair('arm', 0.22, 0.04, 0.24, dark, 0, y);
+    k.pair('arm', 0.24, 0.12, 0.24, dark, 0, -0.58);
+    k.box('armL', 0.06, 0.16, 0.08, dark, -0.07, -0.7, 0.06); // capit
+    k.box('armL', 0.06, 0.16, 0.08, dark, 0.07, -0.7, 0.06);
+    k.box('armR', 0.06, 0.16, 0.08, dark, -0.07, -0.7, 0.06);
+    k.box('armR', 0.06, 0.16, 0.08, dark, 0.07, -0.7, 0.06);
+    k.box('head', 0.68, 0.54, 0.58, steel, 0, 0.29);
+    k.sym('head', 0.18, 0.18, 0.03, '#1E2A3A', 0.15, 0.36, 0.3);
+    k.sym('head', 0.08, 0.08, 0.03, '#8FD0FF', 0.15, 0.36, 0.315);
+    k.box('head', 0.34, 0.1, 0.03, '#1E2A3A', 0, 0.16, 0.3);
+    for (const x of [-0.12, -0.04, 0.04, 0.12]) k.box('head', 0.03, 0.08, 0.03, '#C9D3E0', x, 0.16, 0.31);
+    k.sym('head', 0.08, 0.18, 0.18, '#E53935', 0.38, 0.3); // telinga merah
+    k.sym('head', 0.04, 0.3, 0.04, dark, 0.18, 0.7);
+    k.sym('head', 0.1, 0.1, 0.1, '#E53935', 0.18, 0.88);
   },
-  // 3 Kapten Cakrawala (pahlawan putra, orisinal)
+  // 3 Superhero Laki-laki (orisinal EDUVERSE) — baju biru, topeng biru, jubah kuning, lambang bintang-buku
   (k, skin) => {
-    human(k, { skin, top: '#1FA39A', bottom: '#1FA39A', shoe: '#FF8A3D', sleeve: 'panjang' });
-    k.pair('arm', 0.26, 0.2, 0.3, '#FF8A3D', 0, -0.62); // sarung tangan
-    k.pair('leg', 0.33, 0.24, 0.35, '#FF8A3D', 0, -0.56); // sepatu bot
-    k.box('body', 0.76, 0.1, 0.44, '#FFC93C', 0, 0.86); // sabuk
-    cape(k, '#FF8A3D');
-    k.plane('body', emblem('#FFC93C', '#1E2A4A'), 0.34, 0.34, 0, 1.24, 0.205);
+    human(k, { skin, top: '#2F6FE0', bottom: '#2F6FE0', shoe: '#E53935', sleeve: 'panjang' });
+    k.pair('leg', 0.33, 0.26, 0.35, '#E53935', 0, -0.55); // sepatu bot
+    k.box('body', 0.76, 0.1, 0.44, '#FFC93C', 0, 0.86);
+    cape(k, '#FFC93C');
+    k.plane('body', emblem('#FFFFFF', '#2F6FE0'), 0.36, 0.36, 0, 1.22, 0.205);
     hair(k, 'cepak', HAIR_DARK);
-    k.box('head', 0.64, 0.12, 0.04, '#1E2A4A', 0, 0.38, 0.31); // topeng mata
+    k.box('head', 0.64, 0.13, 0.04, '#1E4FB8', 0, 0.38, 0.31);
     k.sym('head', 0.09, 0.07, 0.02, '#FFFFFF', 0.13, 0.38, 0.33);
   },
-  // 4 Srikandi Cahaya (pahlawan putri, orisinal)
+  // 4 Superhero Perempuan (orisinal EDUVERSE) — baju ungu, topeng ungu, jubah emas, lambang bintang
   (k, skin) => {
-    human(k, { skin, top: '#8B5CF6', bottom: '#8B5CF6', shoe: '#FFC93C', sleeve: 'panjang', skirt: '#6D3FD6', sock: '#8B5CF6' });
-    k.pair('arm', 0.26, 0.2, 0.3, '#FFC93C', 0, -0.62);
-    k.pair('leg', 0.33, 0.26, 0.35, '#FFC93C', 0, -0.55);
-    cape(k, '#E86FA8');
-    k.plane('body', emblem('#FFFFFF', '#E86FA8'), 0.34, 0.34, 0, 1.24, 0.205);
-    hair(k, 'panjang', HAIR_DARK);
-    k.box('head', 0.64, 0.12, 0.04, '#E86FA8', 0, 0.38, 0.31);
+    human(k, { skin, top: '#7B3FC4', bottom: '#7B3FC4', shoe: '#E5B021', sleeve: 'panjang' });
+    k.pair('arm', 0.26, 0.2, 0.3, '#E5B021', 0, -0.62);
+    k.pair('leg', 0.33, 0.28, 0.35, '#E5B021', 0, -0.54);
+    k.box('body', 0.76, 0.1, 0.44, '#E5B021', 0, 0.86);
+    cape(k, '#E5B021');
+    k.plane('body', emblem('#E5B021', '#7B3FC4'), 0.34, 0.34, 0, 1.24, 0.205);
+    hair(k, 'panjang', HAIR_BROWN);
+    k.box('head', 0.64, 0.13, 0.04, '#5B2A99', 0, 0.38, 0.31);
     k.sym('head', 0.09, 0.07, 0.02, '#FFFFFF', 0.13, 0.38, 0.33);
-    k.box('head', 0.5, 0.08, 0.5, '#FFC93C', 0, 0.78); // mahkota
-    k.box('head', 0.12, 0.16, 0.06, '#FFC93C', 0, 0.86, 0.22);
   },
-  // 5 Penjelajah Rimba
+  // 5 Petualang / Explorer — setelan khaki, topi safari, ransel hijau zaitun dengan gulungan tikar
   (k, skin) => {
-    human(k, { skin, top: '#C98A4B', bottom: '#6B5B45', shoe: '#5A3418', sleeve: 'pendek', shorts: true, sock: '#E8DCC8' });
-    k.sym('body', 0.16, 0.14, 0.03, '#A86F38', 0.17, 1.24, 0.21); // saku
-    backpack(k, '#2F7D4F', '#5A3418');
-    k.box('body', 0.22, 0.12, 0.12, '#1E2A4A', 0.12, 1.02, 0.26); // teropong
+    const khaki = '#C8B07E';
+    human(k, { skin, top: khaki, bottom: khaki, shoe: '#5A3418', sleeve: 'pendek', shorts: true, sock: '#E8DCC8' });
+    k.pair('leg', 0.32, 0.22, 0.36, '#6B4A2B', 0, -0.6); // sepatu bot
+    k.sym('body', 0.18, 0.16, 0.03, '#B39A68', 0.17, 1.24, 0.21);
+    k.box('body', 0.04, 0.6, 0.03, '#B39A68', 0, 1.18, 0.215);
+    belt(k, '#5A3418');
+    backpack(k, '#6B7B3A', '#4E3A22');
+    k.box('body', 0.66, 0.18, 0.2, '#7D8A4A', 0, 1.5, -0.32); // gulungan tikar
     hair(k, 'pendek', HAIR_BROWN);
-    k.box('head', 1.0, 0.05, 1.0, '#B8864E', 0, 0.68); // topi lebar
-    k.box('head', 0.66, 0.24, 0.66, '#B8864E', 0, 0.8);
-    k.box('head', 0.68, 0.07, 0.68, '#5A3418', 0, 0.72);
+    k.box('head', 0.96, 0.05, 0.96, '#D9C38F', 0, 0.68); // topi safari
+    k.box('head', 0.68, 0.26, 0.68, '#D9C38F', 0, 0.82);
+    k.box('head', 0.7, 0.07, 0.7, '#8A6A47', 0, 0.73);
   },
-  // 6 Detektif Cilik
+  // 6 Detektif Cilik — mantel cokelat, dasi, topi detektif, kaca pembesar
   (k, skin) => {
-    human(k, { skin, top: '#8A6A47', bottom: '#4A3B2C', shoe: '#2D1B10', sleeve: 'panjang' });
-    k.box('body', 0.76, 0.4, 0.44, '#8A6A47', 0, 0.68); // mantel panjang
-    k.box('body', 0.06, 0.66, 0.03, '#5A4330', 0, 1.0, 0.225);
-    k.sym('body', 0.06, 0.06, 0.03, '#FFC93C', 0.1, 1.1, 0.23);
-    k.box('body', 0.8, 0.22, 0.46, '#7A5C3C', 0, 1.42); // kerah/kapelet
+    human(k, { skin, top: '#8A6142', bottom: '#4A3B2C', shoe: '#2D1B10', sleeve: 'panjang' });
+    k.box('body', 0.78, 0.42, 0.44, '#8A6142', 0, 0.66); // mantel panjang
+    k.box('body', 0.22, 0.3, 0.03, '#FFFFFF', 0, 1.34, 0.215);
+    k.box('body', 0.08, 0.3, 0.035, '#5A3418', 0, 1.28, 0.225); // dasi
+    k.sym('body', 0.06, 0.06, 0.03, '#C9A227', 0.12, 1.06, 0.23);
+    belt(k, '#4E3A22');
+    k.box('body', 0.82, 0.2, 0.48, '#7A5536', 0, 1.42); // kerah
     hair(k, 'pendek', HAIR_DARK);
-    k.box('head', 0.68, 0.24, 0.68, '#6B5B45', 0, 0.76); // topi detektif
-    k.box('head', 0.68, 0.05, 0.3, '#6B5B45', 0, 0.66, 0.44);
-    k.box('head', 0.68, 0.05, 0.3, '#6B5B45', 0, 0.66, -0.44);
-    k.box('head', 0.7, 0.06, 0.7, '#3E3226', 0, 0.68);
+    k.box('head', 0.68, 0.24, 0.68, '#8A6A47', 0, 0.76); // topi detektif (depan-belakang berpelindung)
+    k.box('head', 0.6, 0.05, 0.3, '#8A6A47', 0, 0.66, 0.44);
+    k.box('head', 0.6, 0.05, 0.3, '#8A6A47', 0, 0.66, -0.44);
+    k.box('head', 0.7, 0.06, 0.7, '#5A4330', 0, 0.68);
     holdR(k, (kk) => {
-      kk.box('armR', 0.04, 0.26, 0.04, '#5A3418', 0, -0.82, 0.12);
-      kk.box('armR', 0.22, 0.22, 0.04, '#C9D3E0', 0, -1.02, 0.12);
-      kk.box('armR', 0.15, 0.15, 0.05, '#8FD0FF', 0, -1.02, 0.12);
+      kk.box('armR', 0.05, 0.26, 0.05, '#5A3418', 0, -0.82, 0.12);
+      kk.box('armR', 0.26, 0.26, 0.05, '#3E4A61', 0, -1.04, 0.12);
+      kk.box('armR', 0.18, 0.18, 0.06, '#BFE3FF', 0, -1.04, 0.12);
     });
   },
-  // 7 Pelajar SMA Putra
+  // 7 Pelajar Laki-laki SMA — kemeja putih keabu, celana abu, dasi abu, kacamata
   (k, skin) => {
-    human(k, { skin, top: '#FFFFFF', bottom: '#8C96A8', shoe: '#1E2A4A', sleeve: 'pendek' });
-    tie(k, '#6B7385');
-    badge(k);
-    k.box('body', 0.74, 0.08, 0.42, '#1E2A4A', 0, 0.86);
+    human(k, { skin, top: '#E9ECF1', bottom: '#8C96A8', shoe: '#1E2A4A', sleeve: 'pendek' });
+    tie(k, '#6B7385', '#E9ECF1');
+    badge(k, '#5A3418');
+    belt(k, '#1E2A4A', '#C9D3E0');
     hair(k, 'pendek', HAIR_DARK);
+    glasses(k);
   },
-  // 8 Pelajar SMA Putri
+  // 8 Pelajar Perempuan SMA — jilbab putih, kemeja abu lengan panjang, rok panjang abu, dasi abu
   (k, skin) => {
-    human(k, { skin, top: '#FFFFFF', bottom: '#8C96A8', shoe: '#1E2A4A', sleeve: 'pendek', skirt: '#8C96A8', sock: '#FFFFFF' });
-    tie(k, '#6B7385');
-    badge(k);
-    hair(k, 'panjang', HAIR_BROWN);
+    human(k, { skin, top: '#D9DDE4', bottom: '#8C96A8', shoe: '#1E2A4A', sleeve: 'panjang', skirt: '#8C96A8', sock: '#8C96A8' });
+    longSkirt(k, '#8C96A8');
+    tie(k, '#6B7385', '#D9DDE4');
+    badge(k, '#5A3418');
+    jilbab(k, '#FFFFFF');
   },
-  // 9 Pelajar SMP Putra
+  // 9 Pelajar Laki-laki SMP — kemeja putih, celana biru, dasi biru
   (k, skin) => {
-    human(k, { skin, top: '#FFFFFF', bottom: '#2C4A8C', shoe: '#1E2A4A', sleeve: 'pendek' });
-    tie(k, '#2C4A8C');
-    badge(k, '#3BA7FF');
+    human(k, { skin, top: '#FFFFFF', bottom: '#2C5BC9', shoe: '#1E2A4A', sleeve: 'pendek' });
+    tie(k, '#2C5BC9');
+    badge(k, '#5A3418');
+    belt(k, '#1E2A4A', '#C9D3E0');
     hair(k, 'poni', HAIR_DARK);
   },
-  // 10 Pelajar SMP Putri (berjilbab)
+  // 10 Pelajar Perempuan SMP — jilbab putih, kemeja putih lengan panjang, rok panjang biru
   (k, skin) => {
-    human(k, { skin, top: '#FFFFFF', bottom: '#2C4A8C', shoe: '#1E2A4A', sleeve: 'panjang', skirt: '#2C4A8C', sock: '#2C4A8C' });
-    k.box('body', 0.8, 0.5, 0.46, '#2C4A8C', 0, 0.62); // rok panjang
-    k.pair('leg', 0.3, 0.2, 0.32, '#2C4A8C', 0, -0.4);
+    human(k, { skin, top: '#FFFFFF', bottom: '#2C5BC9', shoe: '#1E2A4A', sleeve: 'panjang', skirt: '#2C5BC9', sock: '#2C5BC9' });
+    longSkirt(k, '#2C5BC9');
+    badge(k, '#5A3418');
     jilbab(k, '#FFFFFF');
-    badge(k, '#3BA7FF');
   },
-  // 11 Dokter Cilik
+  // 11 Dokter Cilik — jas putih, baju toska, stetoskop, kacamata
   (k, skin) => {
-    human(k, { skin, top: '#8FD8F2', bottom: '#5EC4E8', shoe: '#FFFFFF', sleeve: 'panjang', sleeveColor: '#FFFFFF' });
+    human(k, { skin, top: '#4FB8C4', bottom: '#2E3A4F', shoe: '#1E2A4A', sleeve: 'panjang', sleeveColor: '#FFFFFF' });
     k.box('body', 0.78, 0.74, 0.44, '#FFFFFF', 0, 1.1); // jas
-    k.box('body', 0.22, 0.74, 0.03, '#8FD8F2', 0, 1.12, 0.225); // baju dalam terlihat
+    k.box('body', 0.2, 0.7, 0.03, '#4FB8C4', 0, 1.14, 0.225);
     k.box('body', 0.78, 0.36, 0.44, '#FFFFFF', 0, 0.7);
-    k.box('body', 0.03, 0.34, 0.03, '#1E2A4A', -0.16, 1.24, 0.235); // stetoskop
-    k.box('body', 0.03, 0.34, 0.03, '#1E2A4A', 0.16, 1.24, 0.235);
-    k.box('body', 0.12, 0.12, 0.04, '#C9D3E0', 0.12, 1.04, 0.24);
-    k.box('body', 0.14, 0.1, 0.03, '#E53935', -0.22, 1.3, 0.235); // tanda palang
-    k.box('body', 0.05, 0.16, 0.03, '#FFFFFF', -0.22, 1.3, 0.25);
-    hair(k, 'ikal', HAIR_DARK);
+    k.box('body', 0.03, 0.4, 0.03, '#1E2A4A', -0.15, 1.24, 0.235); // stetoskop
+    k.box('body', 0.03, 0.4, 0.03, '#1E2A4A', 0.15, 1.24, 0.235);
+    k.box('body', 0.12, 0.12, 0.04, '#C9D3E0', 0.15, 1.02, 0.24);
+    k.box('body', 0.12, 0.14, 0.03, '#3BA7FF', -0.22, 1.2, 0.235); // pena di saku
+    hair(k, 'pendek', HAIR_BROWN);
+    glasses(k);
   },
-  // 12 Pemadam Kebakaran
+  // 12 Pemadam Kebakaran — setelan kuning bergaris merah, helm merah, sarung tangan hitam
   (k, skin) => {
-    const red = '#E53935';
-    human(k, { skin, top: red, bottom: '#2D2F38', shoe: '#1E2A4A', sleeve: 'panjang' });
-    for (const y of [1.0, 1.3]) k.box('body', 0.74, 0.06, 0.42, '#FFE14D', 0, y);
-    k.pair('arm', 0.26, 0.06, 0.3, '#FFE14D', 0, -0.4);
-    k.pair('leg', 0.32, 0.06, 0.34, '#FFE14D', 0, -0.42);
+    const yel = '#F2B21B';
+    human(k, { skin, top: yel, bottom: yel, shoe: '#1E2A4A', sleeve: 'panjang' });
+    for (const y of [0.98, 1.3]) k.box('body', 0.74, 0.07, 0.42, '#E53935', 0, y);
+    for (const y of [1.04, 1.36]) k.box('body', 0.74, 0.03, 0.42, '#E7E7E7', 0, y);
+    k.pair('arm', 0.26, 0.07, 0.3, '#E53935', 0, -0.4);
+    k.pair('leg', 0.32, 0.07, 0.34, '#E53935', 0, -0.42);
     k.pair('arm', 0.26, 0.16, 0.3, '#1E2A4A', 0, -0.66);
-    k.box('body', 0.06, 0.66, 0.03, '#B71C1C', 0, 1.14, 0.215);
+    k.box('body', 0.06, 0.66, 0.03, '#C68A10', 0, 1.14, 0.215);
+    belt(k, '#1E2A4A', '#C9D3E0');
     hair(k, 'cepak', HAIR_DARK);
-    k.box('head', 0.72, 0.3, 0.7, '#FFC93C', 0, 0.76); // helm
-    k.box('head', 0.72, 0.06, 0.4, '#FFC93C', 0, 0.64, -0.46);
-    k.box('head', 0.2, 0.22, 0.06, red, 0, 0.78, 0.37);
-    k.box('head', 0.08, 0.36, 0.7, '#E5A82E', 0, 0.9);
+    k.box('head', 0.72, 0.3, 0.7, '#D32F2F', 0, 0.76); // helm merah
+    k.box('head', 0.74, 0.06, 0.44, '#D32F2F', 0, 0.64, -0.44);
+    k.box('head', 0.22, 0.22, 0.06, '#FFC93C', 0, 0.78, 0.37);
+    k.box('head', 0.08, 0.38, 0.72, '#B71C1C', 0, 0.9);
   },
-  // 13 Atlet Sekolah
+  // 13 Atlet Sekolah — kaus merah, topi merah, celana merah, kaus kaki putih, bola sepak
   (k, skin) => {
-    human(k, { skin, top: '#2FBF71', bottom: '#1E2A4A', shoe: '#FF8A3D', sleeve: 'pendek', shorts: true, sock: '#FFFFFF' });
-    k.sym('body', 0.06, 0.72, 0.42, '#FFFFFF', 0.33, 1.14);
-    k.plane('body', jerseyNo('7'), 0.36, 0.36, 0, 1.2, 0.205);
-    k.plane('body', jerseyNo('7'), 0.36, 0.36, 0, 1.2, -0.205, Math.PI);
+    human(k, { skin, top: '#E53935', bottom: '#E53935', shoe: '#1E2A4A', sleeve: 'pendek', shorts: true, sock: '#FFFFFF' });
+    k.sym('body', 0.05, 0.72, 0.42, '#FFFFFF', 0.34, 1.14);
+    k.box('body', 0.4, 0.06, 0.42, '#FFFFFF', 0, 1.47);
+    k.box('body', 0.12, 0.12, 0.03, '#FFFFFF', -0.2, 1.3, 0.215); // lencana tim
+    k.plane('body', jerseyNo('7'), 0.36, 0.36, 0, 1.18, -0.205, Math.PI);
     hair(k, 'pendek', HAIR_DARK);
-    k.box('head', 0.66, 0.08, 0.64, '#E53935', 0, 0.56); // ikat kepala
-    k.pair('arm', 0.24, 0.08, 0.28, '#E53935', 0, -0.62); // gelang tangan
+    k.box('head', 0.68, 0.2, 0.66, '#E53935', 0, 0.74); // topi
+    k.box('head', 0.68, 0.05, 0.32, '#E53935', 0, 0.66, 0.44);
+    k.box('armL', 0.3, 0.3, 0.3, '#FFFFFF', 0, -0.82, 0.18); // bola sepak
+    for (const [x, y, z] of [[0, -0.82, 0.335], [0.155, -0.74, 0.22], [-0.155, -0.9, 0.24], [0, -0.67, 0.12]] as const)
+      k.box('armL', 0.1, 0.1, 0.02, '#1E2A4A', x, y, z);
   },
-  // 14 Pelajar SD Putra
+  // 14 Pelajar Laki-laki SD — kemeja putih, celana pendek merah, dasi merah, ransel merah
   (k, skin) => {
     human(k, { skin, top: '#FFFFFF', bottom: '#D32F2F', shoe: '#1E2A4A', sleeve: 'pendek', shorts: true, sock: '#FFFFFF' });
     tie(k, '#D32F2F');
-    badge(k, '#D32F2F');
+    badge(k, '#5A3418');
+    belt(k, '#1E2A4A', '#C9D3E0');
     hair(k, 'pendek', HAIR_DARK);
-    k.box('head', 0.68, 0.2, 0.66, '#D32F2F', 0, 0.74); // topi SD
-    k.box('head', 0.68, 0.05, 0.3, '#D32F2F', 0, 0.66, 0.44);
-    k.box('head', 0.12, 0.08, 0.02, '#FFC93C', 0, 0.76, 0.335);
-    backpack(k, '#3BA7FF');
+    backpack(k, '#D32F2F', '#8E1B1B');
   },
-  // 15 Pelajar SD Putri
+  // 15 Pelajar Perempuan SD — jilbab putih, kemeja putih, rok merah, dasi merah, ransel biru
   (k, skin) => {
-    human(k, { skin, top: '#FFFFFF', bottom: '#D32F2F', shoe: '#1E2A4A', sleeve: 'pendek', skirt: '#D32F2F', sock: '#FFFFFF' });
-    tie(k, '#D32F2F');
-    badge(k, '#D32F2F');
-    hair(k, 'kuncir', HAIR_DARK, '#E86FA8');
-    backpack(k, '#E86FA8');
+    human(k, { skin, top: '#FFFFFF', bottom: '#D32F2F', shoe: '#1E2A4A', sleeve: 'panjang', skirt: '#D32F2F', sock: '#FFFFFF' });
+    jilbab(k, '#FFFFFF');
+    k.box('body', 0.1, 0.22, 0.03, '#D32F2F', 0, 1.12, 0.24); // dasi di bawah jilbab
+    badge(k, '#5A3418');
+    backpack(k, '#3B82D9', '#1E4FB8');
   },
-  // 16 Pelajar Batik Putra
+  // 16 Pelajar Khas Batik Laki-laki — kemeja batik merah-hitam, celana hitam
   (k, skin) => {
-    human(k, { skin, top: '#9A5B22', bottom: '#1E2A4A', shoe: '#2D1B10', sleeve: 'pendek' });
-    k.texturedBox('body', batik('#9A5B22', '#3E2410', '#F2C14E'), 0.735, 0.6, 0.415, 0, 1.2, 0);
-    k.pair('arm', 0.26, 0.04, 0.3, '#3E2410', 0, -0.28);
-    hair(k, 'cepak', HAIR_DARK);
-    k.box('head', 0.64, 0.22, 0.62, '#1A1A1A', 0, 0.74); // peci
+    human(k, { skin, top: '#B3261E', bottom: '#1A1A1A', shoe: '#1A1A1A', sleeve: 'pendek' });
+    k.texturedBox('body', batik('#B3261E', '#1A0A0A', '#F2C14E'), 0.735, 0.62, 0.415, 0, 1.19, 0);
+    k.pair('arm', 0.26, 0.05, 0.3, '#1A0A0A', 0, -0.28);
+    belt(k, '#1A1A1A', '#C9D3E0');
+    hair(k, 'pendek', HAIR_DARK);
   },
-  // 17 Pelajar Batik Putri
+  // 17 Pelajar Khas Batik Perempuan — blus batik merah, kain batik cokelat, rambut kepang
   (k, skin) => {
-    human(k, { skin, top: '#B5476B', bottom: '#4A2A3A', shoe: '#2D1B10', sleeve: 'panjang', skirt: '#4A2A3A', sock: '#4A2A3A' });
-    k.texturedBox('body', batik('#B5476B', '#4A1830', '#FFC93C'), 0.735, 0.6, 0.415, 0, 1.2, 0);
-    k.texturedBox('body', batik('#4A2A3A', '#2A141F', '#E86FA8'), 0.82, 0.5, 0.48, 0, 0.62, 0); // kain panjang
-    k.pair('leg', 0.3, 0.2, 0.32, '#4A2A3A', 0, -0.4);
-    hair(k, 'sanggul', HAIR_DARK, '#FFFFFF');
+    human(k, { skin, top: '#B3261E', bottom: '#7A4A26', shoe: '#2D1B10', sleeve: 'pendek', skirt: '#7A4A26', sock: '#7A4A26' });
+    k.texturedBox('body', batik('#B3261E', '#2A0A0A', '#F2C14E'), 0.735, 0.6, 0.415, 0, 1.2, 0);
+    k.texturedBox('body', batik('#8A5A2E', '#3E2410', '#E9C27A'), 0.82, 0.56, 0.48, 0, 0.6, 0); // kain panjang
+    k.pair('leg', 0.31, 0.24, 0.33, '#7A4A26', 0, -0.4);
+    braids(k, '#24140A');
   },
-  // 18 Chef Cilik
+  // 18 Chef Cilik — jas koki putih berkancing ganda, topi koki tinggi, syal merah, sendok kayu
   (k, skin) => {
-    human(k, { skin, top: '#FFFFFF', bottom: '#3E4A61', shoe: '#1E2A4A', sleeve: 'panjang' });
-    k.sym('body', 0.07, 0.07, 0.03, '#1E2A4A', 0.12, 1.3, 0.215);
-    k.sym('body', 0.07, 0.07, 0.03, '#1E2A4A', 0.12, 1.12, 0.215);
-    k.box('body', 0.6, 0.62, 0.03, '#FF8A3D', 0, 0.9, 0.22); // celemek
-    k.box('body', 0.4, 0.1, 0.46, '#E53935', 0, 1.47); // syal leher
+    human(k, { skin, top: '#FFFFFF', bottom: '#1E2A4A', shoe: '#1A1A1A', sleeve: 'panjang' });
+    for (const y of [1.3, 1.16, 1.02]) k.sym('body', 0.06, 0.06, 0.03, '#1E2A4A', 0.12, y, 0.215);
+    k.box('body', 0.42, 0.12, 0.46, '#E53935', 0, 1.46); // syal leher
+    k.box('body', 0.12, 0.16, 0.04, '#E53935', 0.08, 1.36, 0.23);
     hair(k, 'pendek', HAIR_BROWN);
     k.box('head', 0.66, 0.12, 0.64, '#FFFFFF', 0, 0.66); // topi koki
-    k.box('head', 0.6, 0.42, 0.58, '#FFFFFF', 0, 0.92);
-    k.box('head', 0.72, 0.16, 0.7, '#F1F4F9', 0, 1.16);
+    k.box('head', 0.6, 0.46, 0.58, '#FFFFFF', 0, 0.94);
+    k.box('head', 0.74, 0.18, 0.72, '#F1F4F9', 0, 1.2);
     holdR(k, (kk) => {
-      kk.box('armR', 0.05, 0.4, 0.05, '#B8864E', 0, -0.9, 0.12);
-      kk.box('armR', 0.13, 0.13, 0.06, '#B8864E', 0, -1.12, 0.12);
+      kk.box('armR', 0.05, 0.42, 0.05, '#B8864E', 0, -0.92, 0.12);
+      kk.box('armR', 0.14, 0.16, 0.06, '#B8864E', 0, -1.16, 0.12);
     });
   },
-  // 19 Seniman Cilik
+  // 19 Seniman Cilik — baret merah, kaus jingga, celemek penuh cipratan cat, palet & kuas
   (k, skin) => {
-    human(k, { skin, top: '#FFFFFF', bottom: '#2C4A8C', shoe: '#E86FA8', sleeve: 'pendek' });
-    for (const y of [0.92, 1.12, 1.32]) k.box('body', 0.74, 0.07, 0.42, '#1E2A4A', 0, y); // kaus belang
-    k.box('body', 0.56, 0.5, 0.03, '#F1E4C8', 0, 0.98, 0.22); // celemek bernoda cat
+    human(k, { skin, top: '#F29A2E', bottom: '#2C4A8C', shoe: '#E86FA8', sleeve: 'pendek' });
+    k.box('body', 0.6, 0.86, 0.03, '#F4F1EA', 0, 0.98, 0.22); // celemek
     for (const [x, y, c] of [
-      [-0.12, 1.04, '#E53935'],
-      [0.14, 0.9, '#3BA7FF'],
-      [0.06, 1.12, '#FFC93C'],
+      [-0.16, 1.2, '#E53935'],
+      [0.12, 1.28, '#3BA7FF'],
+      [0.04, 1.06, '#FFC93C'],
+      [-0.1, 0.9, '#2FBF71'],
+      [0.18, 0.84, '#8B5CF6'],
+      [-0.02, 0.72, '#E86FA8'],
     ] as const)
-      k.box('body', 0.07, 0.07, 0.02, c, x, y, 0.24);
-    hair(k, 'ikal', HAIR_BROWN);
-    k.box('head', 0.72, 0.14, 0.7, '#E53935', -0.04, 0.72, 0, 0, 0.14); // baret
-    k.box('head', 0.06, 0.08, 0.06, '#E53935', -0.06, 0.82);
+      k.box('body', 0.09, 0.09, 0.02, c, x, y, 0.24);
+    hair(k, 'panjang', HAIR_BROWN);
+    k.box('head', 0.74, 0.14, 0.72, '#D32F2F', -0.04, 0.72, 0, 0, 0.14); // baret
+    k.box('head', 0.06, 0.08, 0.06, '#D32F2F', -0.06, 0.82);
+    k.box('head', 0.06, 0.06, 0.02, '#2FBF71', 0.2, 0.25, 0.305); // noda cat di pipi
     holdR(k, (kk) => {
-      kk.box('armR', 0.04, 0.34, 0.04, '#B8864E', 0, -0.86, 0.12);
-      kk.box('armR', 0.06, 0.08, 0.06, '#3BA7FF', 0, -1.04, 0.12);
+      kk.box('armR', 0.04, 0.36, 0.04, '#B8864E', 0, -0.88, 0.12);
+      kk.box('armR', 0.06, 0.1, 0.06, '#8B5CF6', 0, -1.08, 0.12);
     });
-    k.box('armL', 0.34, 0.04, 0.26, '#E6C998', 0, -0.74, 0.14); // palet
-    for (const [x, c] of [
-      [-0.1, '#E53935'],
-      [0, '#2FBF71'],
-      [0.1, '#FFC93C'],
+    k.box('armL', 0.36, 0.04, 0.28, '#E6C998', 0, -0.74, 0.14); // palet
+    for (const [x, z, c] of [
+      [-0.11, 0.08, '#E53935'],
+      [0, 0.04, '#2FBF71'],
+      [0.11, 0.08, '#FFC93C'],
+      [0.06, 0.2, '#3BA7FF'],
     ] as const)
-      k.box('armL', 0.06, 0.03, 0.06, c, x, -0.71, 0.18);
+      k.box('armL', 0.06, 0.03, 0.06, c, x, -0.71, z + 0.06);
   },
 ];
 
