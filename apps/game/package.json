@@ -1,0 +1,22 @@
+{
+  "name": "@eduverse/game",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@eduverse/shared": "0.1.0",
+    "socket.io-client": "4.8.4",
+    "three": "0.160.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.160.0",
+    "typescript": "5.5.4",
+    "vite": "5.4.2"
+  }
+}
