@@ -3,6 +3,7 @@ import type { Server, Socket } from 'socket.io';
 import { EV, isWorldId, type SceneId } from '@eduverse/shared';
 import { COOKIE, parseCookie, verifyTeacherToken } from '../auth.js';
 import type { RuntimeRegistry, SessionRuntime } from './runtime.js';
+import { config } from '../config.js';
 
 type Ack = (r: unknown) => void;
 const ackOf = (a: unknown): Ack => (typeof a === 'function' ? (a as Ack) : () => {});
@@ -36,7 +37,7 @@ function ipOf(s: Socket) {
 export function attachSockets(io: Server, registry: RuntimeRegistry, opts: { trustProxy: boolean }) {
   const play = io.of('/play');
   const teacher = io.of('/teacher');
-  const joinLimiter = new Bucket(20, 60_000);
+  const joinLimiter = new Bucket(config.joinRatePerMin, 60_000); // per IP; kelas sering berbagi satu IP (NAT)
   const claimLimiter = new Bucket(10, 60_000);
 
   play.on('connection', (socket) => {

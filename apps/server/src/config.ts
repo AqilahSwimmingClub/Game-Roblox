@@ -21,4 +21,6 @@ export const config = {
   dashboardDist: process.env.DASHBOARD_DIST ?? new URL('../../dashboard/dist', import.meta.url).pathname,
   trustProxy: process.env.TRUST_PROXY === '1',
   maxPlayersPerNode: Number(process.env.MAX_PLAYERS_PER_NODE ?? 600),
+  /** Batas gabung per IP per menit. Satu kelas biasanya berbagi satu IP publik (NAT sekolah), jadi jangan terlalu kecil. */
+  joinRatePerMin: Number(process.env.JOIN_RATE_PER_MIN ?? 600),
 };
