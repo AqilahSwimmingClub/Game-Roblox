@@ -171,7 +171,7 @@ run('server EDUVERSE (Postgres + Socket.IO)', () => {
     expect(await emit(b, 'identity:claim', { absen: 12, nama: 'raka' })).toMatchObject({ ok: false }); // nama kembar
     const cb = await emit(b, 'identity:claim', { absen: 12, nama: 'Sinta' });
     expect(cb.ok).toBe(true);
-    await emit(a, 'avatar:set', { kulit: 1, rambut: 2, baju: 2, topi: 0, aksesori: 2, warna: 4 });
+    await emit(a, 'avatar:set', { karakter: 4, kulit: 1 });
 
     // Dashboard guru (namespace /teacher) wajib cookie
     const bad = ioc(base + '/teacher', { transports: ['websocket'], forceNew: true });
@@ -189,7 +189,7 @@ run('server EDUVERSE (Postgres + Socket.IO)', () => {
     expect(la.ok && lb.ok).toBe(true);
     // B melihat A di lobi (interest management)
     const snap = await waitFor<any>(b, 'players:snapshot', (d) => d.list.some((p: any) => p.nama === 'Raka'));
-    expect(snap.list[0].avatar.warna).toBe(4);
+    expect(snap.list[0].avatar.karakter).toBe(4);
 
     expect((await api(`/sessions/${sessionId}/start`, { method: 'POST' })).status).toBe(200);
     await waitFor<any>(a, 'session:state', (d) => d.status === 'berjalan', 8000);

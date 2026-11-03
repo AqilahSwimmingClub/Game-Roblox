@@ -124,10 +124,25 @@ input, select, textarea { font: inherit; }
 .avatar-preview .nametag { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); }
 .avatar-options { padding: 18px; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
 .avatar-options .grid { overflow: auto; }
+/* Kartu 20 karakter */
+.char-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; flex: 1 1 auto; min-height: 0; align-content: start; }
+.char-card { flex-direction: column; gap: 2px; padding: 4px 4px 6px; min-height: 0; font-size: 13px; line-height: 1.15; text-align: center; }
+.char-card img { width: 100%; aspect-ratio: 5 / 6; object-fit: contain; border-radius: 12px; background: linear-gradient(180deg, #eef4ff, #dbe8fb); pointer-events: none; }
+.char-title { position: absolute; left: 12px; right: 12px; bottom: 12px; background: rgba(255, 255, 255, 0.92); border-radius: 16px; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; font-weight: 700; color: var(--navy); }
+.char-title b { font-family: 'Fredoka', sans-serif; font-size: 20px; }
+.skin-row { gap: 8px; align-items: center; }
+.skin { width: 40px; height: 40px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 2px var(--abu-lembut); cursor: pointer; }
+.skin.pilih { box-shadow: 0 0 0 4px var(--biru); }
 @media (max-width: 720px), (max-height: 520px) and (orientation: landscape) {
   .avatar-layout { grid-template-columns: 1fr 1.3fr; height: 100%; }
   .avatar-options { padding: 12px; gap: 10px; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+  .grid.char-grid { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
+  .char-card { font-size: 11px; }
+  .avatar-options h2 { font-size: 20px !important; }
+  .avatar-options .tab { min-height: 36px; padding: 6px 10px; font-size: 14px; }
+  .char-title span { display: none; }
+  .skin { width: 32px; height: 32px; }
 }
 @media (max-width: 560px) and (orientation: portrait) {
   .avatar-layout { grid-template-columns: 1fr; grid-template-rows: 38% 62%; }

@@ -58,6 +58,7 @@ export class RemotePlayers {
       } else {
         let r = this.map.get(item.id);
         if (!r) r = this.add(item.id, item.nama, item.absen, item.avatar, item.x, item.y, item.z);
+        else if (item.avatar) r.avatar.build(item.avatar); // karakter diganti (tidak membangun ulang bila sama)
         r.samples.push({ t: msg.t, x: item.x, y: item.y, z: item.z, ry: item.ry });
         r.anim = item.anim;
         this.setEmote(r, item.emote);
