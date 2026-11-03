@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+coverage/
+playwright-report/
+test-results/
+
+# Environment & secrets — JANGAN di-commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Data lokal
+uploads/
+.pgdata/
+*.log
+.DS_Store
+.vscode/
+.idea/
