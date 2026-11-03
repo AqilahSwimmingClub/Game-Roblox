@@ -1,17 +1,19 @@
 /**
  * Uji ujung-ke-ujung EDUVERSE: 1 guru (tablet) + 2 siswa (HP) di 3 PROSES BROWSER TERPISAH.
  *
- * Alur yang diuji (semua lewat UI sungguhan, bukan panggilan API langsung):
- *  1. Guru masuk Dashboard → membuat sesi lewat formulir → mendapat kode kelas.
- *  2. Dua siswa membuka tautan ?kode=…, memilih identitas & avatar, masuk lobi, memilih Dunia Kota, menekan SIAP.
- *  3. Dashboard menampilkan 2 siswa online → guru menekan Mulai → keduanya masuk Dunia Kota.
- *  4. Tiap siswa melihat siswa lainnya (pemain jarak jauh tersinkron lewat server).
+ * Alur kelas resmi yang diuji (semua lewat UI sungguhan, bukan panggilan API langsung):
+ *  1. Guru masuk Dashboard → membuat sesi lewat formulir (persetujuan siswa aktif) → mendapat kode kelas.
+ *  2. Dua siswa membuka tautan ?kode=…, mengisi nomor absen & nama → menunggu persetujuan.
+ *  3. Guru menyetujui di Dashboard → siswa memilih karakter (dua karakter berbeda dari 20) → ruang tunggu → SIAP.
+ *  4. Guru menekan Mulai → keduanya masuk Dunia Kota yang sama dan saling melihat DENGAN karakter pilihan masing-masing.
  *  5. Siswa A berjalan (autopilot mode uji ?debug=1 memakai input gerak biasa, posisi divalidasi server) ke titik soal,
  *     membuka soal, menjawab → server menilai → umpan jawaban & poin muncul di Dashboard.
- *  6. Guru mengakhiri permainan → hasil akhir tampil di Dashboard.
+ *  6. Guru mengakhiri permainan → hasil akhir → Podium 3D menampilkan karakter pilihan para juara.
  *
- * Prasyarat: server berjalan (npm run build && npm start), bank soal guru berisi soal (mis. "Muat Soal Contoh").
- * Variabel: BASE_URL (default http://localhost:3000), TEACHER_EMAIL, TEACHER_PASSWORD, SHOTS (folder tangkapan layar, opsional).
+ * Topologi: WEB_URL = frontend statis (game "/", Dashboard "/guru/", seperti Vercel),
+ *           backend API/Socket.IO di alamat dari eduverse-config.js (seperti Render). Tanpa WEB_URL = BASE_URL.
+ * Prasyarat: server berjalan, guru & bank soal siap (node tests/setup-teacher.mjs).
+ * Variabel: BASE_URL, WEB_URL, TEACHER_EMAIL, TEACHER_PASSWORD, SHOTS (folder tangkapan layar, opsional).
  * Butuh paket "playwright" + Chromium (npx playwright install chromium).
  */
 import fs from 'node:fs';
@@ -21,6 +23,7 @@ import { createRequire } from 'node:module';
 const { chromium, devices } = createRequire(import.meta.url)('playwright');
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3000';
+const WEB = process.env.WEB_URL ?? BASE;
 const EMAIL = process.env.TEACHER_EMAIL ?? 'guru@sekolah.id';
 const PASS = process.env.TEACHER_PASSWORD ?? 'rahasia123';
 const SHOTS = process.env.SHOTS ?? '';
@@ -44,32 +47,36 @@ const step = async (name, fn) => {
 };
 const shot = async (page, n) => SHOTS && page.screenshot({ path: `${SHOTS}/${n}.png` });
 
-async function student(code, absen, nama, rambut) {
+/** Tahap 1: buka tautan undangan, isi absen & nama → layar menunggu persetujuan guru. */
+async function studentJoin(code, absen, nama) {
   const browser = await chromium.launch({ args: GL });
   const ctx = await browser.newContext({ ...devices['Pixel 7 landscape'] });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && !/fonts\.(googleapis|gstatic)|ERR_TUNNEL|ERR_NAME/.test(m.text()) && errors.push(m.text()));
-  await page.goto(`${BASE}/?kode=${code}&debug=1`);
+  await page.goto(`${WEB}/?kode=${code}&debug=1`);
   const main = page.getByRole('button', { name: 'MAIN', exact: true });
   await main.waitFor({ timeout: 30000 });
   await main.click({ force: true });
-  await page.getByText('Kamu yang mana?').waitFor({ timeout: 15000 });
+  await page.getByText('Kamu yang mana?').waitFor({ timeout: 20000 });
   await page.getByPlaceholder('mis. 7').fill(String(absen));
   await page.getByPlaceholder('mis. Raka').fill(nama);
   await page.getByRole('button', { name: 'Simpan' }).click();
-  await page.getByText('Pilih Avatarmu').waitFor({ timeout: 15000 });
-  if (rambut) {
-    await page.getByRole('button', { name: 'Rambut' }).click();
-    await page.getByRole('button', { name: rambut }).click();
-  }
+  await page.getByText('Menunggu persetujuan guru').waitFor({ timeout: 15000 });
+  return { browser, page, errors, nama };
+}
+
+/** Tahap 2 (setelah disetujui): pilih karakter → ruang tunggu Dunia Kota → SIAP. */
+async function studentPick(s, karakter) {
+  const { page } = s;
+  await page.getByText('Pilih Karaktermu').waitFor({ timeout: 20000 });
+  await page.locator(`.char-card[data-karakter="${karakter}"]`).click();
+  await shot(page, `s0-karakter-${s.nama}`);
   await page.getByRole('button', { name: 'SIAP!' }).click();
-  await page.waitForFunction(() => window.__edu?.scene === 'lobi', null, { timeout: 20000 });
-  await page.getByRole('button', { name: 'PILIH DUNIA' }).click();
-  await page.getByText('Dunia Kota', { exact: true }).click();
+  await page.getByText('Ruang Tunggu').waitFor({ timeout: 20000 });
   await page.getByRole('button', { name: 'SIAP', exact: true }).click();
-  return { browser, page, errors };
+  s.karakter = karakter;
 }
 
 async function answerCurrentQuestion(page) {
@@ -83,14 +90,14 @@ async function answerCurrentQuestion(page) {
 
 let browsers = [];
 try {
-  console.log(`EDUVERSE e2e → ${BASE}`);
+  console.log(`EDUVERSE e2e → frontend ${WEB} · backend ${BASE}`);
   // ── Guru ──
   const tb = await chromium.launch();
   browsers.push(tb);
   const tctx = await tb.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1.5, hasTouch: true });
   const teacher = await tctx.newPage();
   const code = await step('Guru masuk & membuat sesi dari formulir Dashboard', async () => {
-    await teacher.goto(`${BASE}/guru/#/masuk`);
+    await teacher.goto(`${WEB}/guru/#/masuk`);
     await teacher.getByPlaceholder('nama@sekolah.sch.id').fill(EMAIL);
     await teacher.getByPlaceholder('Minimal 8 karakter').fill(PASS);
     await teacher.getByRole('button', { name: 'Masuk', exact: true }).click();
@@ -109,11 +116,19 @@ try {
   console.log(`    kode kelas ${code}`);
 
   // ── Dua siswa di dua proses browser berbeda ──
-  const [a, b] = await step('Dua siswa (2 browser terpisah) masuk lobi & siap di Dunia Kota', () => Promise.all([student(code, 7, 'Raka', 'Jilbab'), student(code, 12, 'Sinta', null)]));
+  const [a, b] = await step('Dua siswa (2 browser terpisah) masuk dengan kode, absen & nama → menunggu persetujuan', () => Promise.all([studentJoin(code, 7, 'Raka'), studentJoin(code, 12, 'Sinta')]));
   browsers.push(a.browser, b.browser);
-  await step('Dashboard menampilkan 2 siswa online secara langsung', async () => {
+  await step('Dashboard menampilkan 2 permintaan masuk → guru menyetujui', async () => {
+    await teacher.getByText('2 menunggu persetujuan').waitFor({ timeout: 15000 });
+    await shot(teacher, 'g3-permintaan-masuk');
+    await teacher.getByRole('button', { name: /Setujui Semua/ }).click();
     await teacher.getByText('2 siswa online').waitFor({ timeout: 15000 });
-    await shot(teacher, 'g3-siswa-online');
+  });
+  await step('Siswa memilih karakter berbeda (Astronot & Srikandi Cahaya) → ruang tunggu → SIAP', () => Promise.all([studentPick(a, 0), studentPick(b, 4)]));
+  await step('Dashboard menampilkan karakter pilihan tiap siswa', async () => {
+    await teacher.getByRole('cell', { name: 'Astronot Bintang' }).waitFor({ timeout: 15000 });
+    await teacher.getByRole('cell', { name: 'Srikandi Cahaya' }).waitFor({ timeout: 15000 });
+    await shot(teacher, 'g3b-karakter');
   });
 
   await step('Guru menekan Mulai → kedua siswa masuk Dunia Kota', async () => {
@@ -121,8 +136,14 @@ try {
     await Promise.all([a, b].map((s) => s.page.waitForFunction(() => window.__edu?.scene === 'kota', null, { timeout: 40000 })));
   });
 
-  await step('Setiap siswa melihat siswa lain (sinkron multipemain)', async () => {
+  await step('Setiap siswa melihat siswa lain dengan karakter pilihannya (sinkron multipemain)', async () => {
     await Promise.all([a, b].map((s) => s.page.waitForFunction(() => window.__edu?.remotes >= 1, null, { timeout: 20000 })));
+    // karakter pemain lain yang tampil = karakter yang dipilih pemain itu
+    const seenByA = await a.page.evaluate(() => window.__edu.remoteChars);
+    const seenByB = await b.page.evaluate(() => window.__edu.remoteChars);
+    if (!seenByA.some((r) => r.nama === 'Sinta' && r.karakter === 4)) throw new Error(`A melihat ${JSON.stringify(seenByA)}`);
+    if (!seenByB.some((r) => r.nama === 'Raka' && r.karakter === 0)) throw new Error(`B melihat ${JSON.stringify(seenByB)}`);
+    await a.page.waitForTimeout(1500);
     await shot(a.page, 's1-kota-raka');
     await shot(b.page, 's2-kota-sinta');
   });
@@ -173,9 +194,17 @@ try {
 
   await step('Guru menampilkan Podium 3D → kedua siswa pindah ke panggung podium', async () => {
     await teacher.getByRole('button', { name: /Tampilkan Podium/ }).click();
-    await Promise.all([a, b].map((s) => s.page.waitForFunction(() => window.__edu?.scene === 'podium', null, { timeout: 20000 })));
+    await Promise.all([a, b].map((s) => s.page.waitForFunction(() => window.__edu?.scene === 'podium' && window.__edu.podium.length > 0, null, { timeout: 20000 })));
     await a.page.waitForTimeout(5000);
     await shot(a.page, 's5-podium');
+  });
+
+  await step('Avatar di podium = karakter pilihan masing-masing juara', async () => {
+    const pod = await b.page.evaluate(() => window.__edu.podium);
+    const want = { Raka: 0, Sinta: 4 };
+    for (const p of pod) if (want[p.nama] !== undefined && want[p.nama] !== p.karakter) throw new Error(`podium ${JSON.stringify(pod)}`);
+    if (!pod.length) throw new Error('podium kosong');
+    console.log(`    podium: ${pod.map((p) => `#${p.rank} ${p.nama}=karakter ${p.karakter}`).join(', ')}`);
   });
 
   const errs = [...a.errors, ...b.errors];

@@ -286,8 +286,14 @@ net.on<{ x: number; y: number; z: number; reason: string }>(EV.teleport, (m) => 
   player?.teleport(m.x, m.y, m.z);
   if (m.reason === 'pulih') notify('Hup! Kamu kembali ke tempat aman.', 'info');
 });
+/** Satu-satunya dunia aktif sesi ini (mis. hanya Kota) → semua siswa di lobi masuk bersama saat guru memulai. */
+function soleWorld(): WorldId | null {
+  const ws = (session?.worlds ?? []).filter((w) => WORLDS.find((x) => x.id === w)?.tersedia);
+  return ws.length === 1 ? ws[0]! : null;
+}
 net.on<{ n: number }>(EV.countdown, (m) => {
   countdown(m.n);
+  if (m.n <= 0 && !pendingWorld && stage?.scene === 'lobi') pendingWorld = soleWorld();
   if (m.n <= 0 && pendingWorld) {
     const w = pendingWorld;
     pendingWorld = null;
@@ -309,9 +315,10 @@ net.on<{ top3: PodiumEntry[]; total: number }>(EV.podium, (m) => void runPodium(
 net.on<{ approved: boolean }>(EV.identityApproved, (m) => {
   if (me) me.approved = m.approved;
 });
-net.on<{ reason: string }>(EV.kicked, (m) => {
+net.on<{ reason: string; retry?: boolean }>(EV.kicked, (m) => {
   net.forgetClaim(net.code);
-  blocker('Sesi berakhir untuk perangkat ini', m.reason, { label: 'Muat Ulang', fn: () => location.reload() });
+  document.querySelectorAll('.screen').forEach((n) => n.id !== 'blocker' && n.remove());
+  blocker(m.retry ? 'Belum disetujui guru' : 'Sesi berakhir untuk perangkat ini', m.reason, { label: m.retry ? 'Coba Lagi' : 'Muat Ulang', fn: () => location.reload() });
 });
 
 async function runPodium(top3: PodiumEntry[]) {
@@ -478,6 +485,9 @@ function exposeState() {
     scene: stage?.scene ?? null,
     pos: player ? { x: player.body.x, y: player.body.y, z: player.body.z } : null,
     remotes: remote.count(),
+    remoteChars: remote.characters(),
+    myChar: avatarCfg.karakter,
+    podium: stage?.podiumShown ?? [],
     points: stage?.points?.list().length ?? 0,
     score: lastScore.poin,
     status: session?.status ?? null,
@@ -555,8 +565,13 @@ async function boot() {
     if (await goScene(last)) return;
   }
   await goScene('lobi');
+  const only = soleWorld();
   if (session.status === 'selesai') notify('Permainan sesi ini sudah selesai. Tunggu podium dari gurumu.', 'info');
-  else if (!running) notify('Selamat datang di Lobi! Masuk portal oranye atau tekan PILIH DUNIA.', 'misi');
+  else if (!running && only) {
+    // Ruang tunggu langsung: begitu guru menekan Mulai, semua siswa masuk ke dunia yang sama
+    void enterWorldFlow(only);
+  } else if (!running) notify('Selamat datang di Lobi! Masuk portal oranye atau tekan PILIH DUNIA.', 'misi');
+  else if (only) void goScene(only);
   else notify('Permainan sedang berjalan! Masuk portal oranye untuk ikut.', 'misi');
 }
 

@@ -124,10 +124,14 @@ input, select, textarea { font: inherit; }
 .avatar-preview .nametag { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); }
 .avatar-options { padding: 18px; display: flex; flex-direction: column; gap: 14px; min-height: 0; }
 .avatar-options .grid { overflow: auto; }
+.avatar-layout > * { min-width: 0; }
+.avatar-options > :not(.char-grid) { flex-shrink: 0; }
+.avatar-options .tabs { max-width: 100%; }
 /* Kartu 20 karakter */
-.char-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; flex: 1 1 auto; min-height: 0; align-content: start; }
-.char-card { flex-direction: column; gap: 2px; padding: 4px 4px 6px; min-height: 0; font-size: 13px; line-height: 1.15; text-align: center; }
-.char-card img { width: 100%; aspect-ratio: 5 / 6; object-fit: contain; border-radius: 12px; background: linear-gradient(180deg, #eef4ff, #dbe8fb); pointer-events: none; }
+.char-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); grid-auto-rows: max-content; gap: 8px; flex: 1 1 auto; min-height: 0; align-content: start; overflow-y: auto; overscroll-behavior: contain; padding: 4px; }
+.char-card { flex-direction: column; justify-content: flex-start; gap: 2px; padding: 4px 4px 6px; min-height: 0; height: auto; font-size: 13px; line-height: 1.15; text-align: center; }
+.char-card span { display: block; min-height: 2.3em; }
+.char-card img { flex: none; display: block; width: 100%; height: auto; aspect-ratio: 5 / 6; object-fit: contain; border-radius: 12px; background: linear-gradient(180deg, #eef4ff, #dbe8fb); pointer-events: none; }
 .char-title { position: absolute; left: 12px; right: 12px; bottom: 12px; background: rgba(255, 255, 255, 0.92); border-radius: 16px; padding: 8px 12px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; font-weight: 700; color: var(--navy); }
 .char-title b { font-family: 'Fredoka', sans-serif; font-size: 20px; }
 .skin-row { gap: 8px; align-items: center; }
@@ -140,7 +144,9 @@ input, select, textarea { font: inherit; }
   .grid.char-grid { grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 6px; }
   .char-card { font-size: 11px; }
   .avatar-options h2 { font-size: 20px !important; }
-  .avatar-options .tab { min-height: 36px; padding: 6px 10px; font-size: 14px; }
+  .avatar-options .tab { min-height: 34px; padding: 4px 10px; font-size: 14px; flex: none; }
+  .avatar-options .tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .char-card span { min-height: 2.2em; }
   .char-title span { display: none; }
   .skin { width: 32px; height: 32px; }
 }

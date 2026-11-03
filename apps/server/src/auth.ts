@@ -23,8 +23,18 @@ export function signTeacher(c: TeacherClaims): string {
   return jwt.sign(c, config.jwtSecret, { expiresIn: '12h', algorithm: 'HS256' });
 }
 
+/** Token yang sudah dikeluarkan (logout) → ditolak sampai kedaluwarsa. Disimpan di memori instance. */
+const revoked = new Map<string, number>();
+export function revokeToken(token: string | undefined) {
+  if (!token) return;
+  const d = jwt.decode(token) as { exp?: number } | null;
+  revoked.set(token, (d?.exp ?? Date.now() / 1000 + 12 * 3600) * 1000);
+  const now = Date.now();
+  for (const [t, exp] of revoked) if (exp < now) revoked.delete(t);
+}
+
 export function verifyTeacherToken(token: string | undefined): TeacherClaims | null {
-  if (!token) return null;
+  if (!token || revoked.has(token)) return null;
   try {
     return jwt.verify(token, config.jwtSecret, { algorithms: ['HS256'] }) as TeacherClaims;
   } catch {

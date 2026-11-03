@@ -1,4 +1,28 @@
-/** Pembantu dashboard: DOM, panggilan API (cookie httpOnly), toast. */
+/** Pembantu dashboard: DOM, panggilan API (token Bearer; server boleh di domain lain), toast. */
+import { SERVER_URL } from './server.js';
+
+const TOKEN_KEY = 'eduverse.guru.token';
+let memToken = '';
+/** Token login guru (12 jam). Disimpan di localStorage agar tetap masuk saat tablet memuat ulang halaman. */
+export function getToken(): string {
+  if (memToken) return memToken;
+  try {
+    memToken = localStorage.getItem(TOKEN_KEY) ?? '';
+  } catch {
+    /* mode privat */
+  }
+  return memToken;
+}
+export function setToken(t: string) {
+  memToken = t;
+  try {
+    if (t) localStorage.setItem(TOKEN_KEY, t);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* abaikan */
+  }
+}
+export const apiUrl = (path: string) => `${SERVER_URL}/api${path}`;
 type Child = Node | string | number | null | undefined | false;
 type Attrs = Record<string, unknown>;
 
@@ -37,15 +61,40 @@ export async function api<T = unknown>(path: string, init: RequestInit & { json?
     headers['content-type'] = 'application/json';
     body = JSON.stringify(init.json);
   }
-  const res = await fetch('/api' + path, { ...init, headers, body, credentials: 'same-origin' });
+  const tok = getToken();
+  if (tok) headers.authorization = `Bearer ${tok}`;
+  let res: Response;
+  try {
+    res = await fetch(apiUrl(path), { ...init, headers, body, credentials: 'same-origin' });
+  } catch {
+    throw new ApiError(`Server EDUVERSE belum bisa dihubungi (${SERVER_URL || location.origin}). Bila server baru dinyalakan, tunggu ±1 menit lalu muat ulang.`, 0, null);
+  }
   const ct = res.headers.get('content-type') ?? '';
   const data = ct.includes('json') ? await res.json() : null;
   if (!res.ok) {
-    if (res.status === 401 && !path.startsWith('/auth/')) location.hash = '#/masuk';
+    if (res.status === 401 && !path.startsWith('/auth/login')) {
+      setToken('');
+      location.hash = '#/masuk';
+    }
     const d = data as { error?: string; errors?: string[] } | null;
     throw new ApiError(d?.error ?? d?.errors?.join(' · ') ?? `Galat ${res.status}`, res.status, data);
   }
   return data as T;
+}
+
+/** Unduh file dari API (ekspor/templat) dengan token guru. */
+export async function download(path: string, fallbackName: string) {
+  const res = await fetch(apiUrl(path), { headers: getToken() ? { authorization: `Bearer ${getToken()}` } : {}, credentials: 'same-origin' });
+  if (!res.ok) throw new Error(res.status === 401 ? 'Sesi login habis. Silakan masuk lagi.' : `Gagal mengunduh (${res.status})`);
+  const cd = res.headers.get('content-disposition') ?? '';
+  const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd);
+  const name = m ? decodeURIComponent(m[1]!) : fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const a = h('a', { href: url, download: name });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 export function toast(text: string, isErr = false) {

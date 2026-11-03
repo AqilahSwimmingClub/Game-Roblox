@@ -1,0 +1,39 @@
+# EDUVERSE backend (REST API + Socket.IO + PostgreSQL) untuk Render — https://render.com/docs/blueprint-spec
+# Render Dashboard → New → Blueprint → pilih repo AqilahSwimmingClub/Game-Roblox dan branch ini.
+# Frontend tetap di Vercel (eduverse-web-preview.vercel.app) dan tersambung ke layanan ini lewat HTTPS/WSS.
+services:
+  - type: web
+    name: eduverse-aqilah-api # alamat: https://eduverse-aqilah-api.onrender.com (bila nama tersedia)
+    runtime: node
+    region: singapore # terdekat dengan Indonesia
+    plan: free # untuk kelas sungguhan disarankan "starter" (tidak tertidur, lihat docs/DEPLOYMENT.md)
+    buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: eduverse-db
+          property: connectionString
+      - key: PUBLIC_URL # tautan undangan & QR mengarah ke game di Vercel
+        value: https://eduverse-web-preview.vercel.app
+      - key: CORS_ORIGINS # frontend yang boleh memanggil server ini (produksi + preview Vercel)
+        value: https://eduverse-web-preview.vercel.app,https://eduverse-web-preview-*-aqilahswimmingclubs-projects.vercel.app
+      - key: TRUST_PROXY
+        value: '1'
+      - key: TEACHER_REGISTRATION_CODE # isi sendiri di Render (rahasia) — guru pertama boleh daftar tanpa kode
+        sync: false
+
+databases:
+  - name: eduverse-db
+    region: singapore
+    plan: free # perhatian: Postgres gratis Render berlaku terbatas (lihat docs/DEPLOYMENT.md)
+    databaseName: eduverse
+    user: eduverse

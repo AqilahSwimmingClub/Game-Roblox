@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { DEFAULT_SETTINGS, SUBJECTS, WORLDS, questionFingerprint, type SessionSettings } from '@eduverse/shared';
 import { query } from './db/pool.js';
 import { config } from './config.js';
-import { hashPassword, verifyPassword, signTeacher, setAuthCookie, requireTeacher, teacherOf, COOKIE } from './auth.js';
+import { hashPassword, verifyPassword, signTeacher, setAuthCookie, requireTeacher, teacherOf, COOKIE, revokeToken, tokenFrom } from './auth.js';
 import * as repo from './questionsRepo.js';
 import { parseXlsx, parseDocx, templateXlsx, type PreviewRow } from './importer.js';
 import { templateDocx } from './wordTemplate.js';
@@ -142,11 +142,13 @@ export function apiRouter(registry: RuntimeRegistry) {
       if (!row || !ok) return res.status(401).json({ error: 'Email atau kata sandi salah.' });
       const token = signTeacher({ sub: row.id, email: row.email, name: row.name });
       setAuthCookie(res, token);
-      res.json({ ok: true, teacher: { id: row.id, email: row.email, name: row.name } });
+      // token juga dikirim di body: Dashboard di domain lain (Vercel) memakainya sebagai header Authorization
+      res.json({ ok: true, token, expiresInSec: 12 * 3600, teacher: { id: row.id, email: row.email, name: row.name } });
     }),
   );
 
-  r.post('/auth/logout', (_req, res) => {
+  r.post('/auth/logout', (req, res) => {
+    revokeToken(tokenFrom(req));
     res.clearCookie(COOKIE, { path: '/' });
     res.json({ ok: true });
   });

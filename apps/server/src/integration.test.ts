@@ -171,6 +171,12 @@ run('server EDUVERSE (Postgres + Socket.IO)', () => {
     expect(await emit(b, 'identity:claim', { absen: 12, nama: 'raka' })).toMatchObject({ ok: false }); // nama kembar
     const cb = await emit(b, 'identity:claim', { absen: 12, nama: 'Sinta' });
     expect(cb.ok).toBe(true);
+    // Persetujuan guru wajib (bawaan): belum disetujui → tidak boleh masuk lobi
+    expect(ca.me.approved).toBe(false);
+    expect((await emit(a, 'world:enter', { scene: 'lobi' })).ok).toBe(false);
+    const approvedA = waitFor<any>(a, 'identity:approved', (d) => d.approved === true);
+    for (const n of [7, 12]) expect((await api(`/sessions/${sessionId}/roster/${n}/approve`, { method: 'POST' })).status).toBe(200);
+    await approvedA;
     await emit(a, 'avatar:set', { karakter: 4, kulit: 1 });
 
     // Dashboard guru (namespace /teacher) wajib cookie

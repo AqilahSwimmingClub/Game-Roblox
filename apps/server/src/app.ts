@@ -11,6 +11,7 @@ import { config } from './config.js';
 import { apiRouter } from './routes.js';
 import { RuntimeRegistry } from './game/runtime.js';
 import { attachSockets } from './game/sockets.js';
+import { corsMiddleware, originAllowed } from './cors.js';
 
 export interface AppHandle {
   server: http.Server;
@@ -21,7 +22,7 @@ export interface AppHandle {
 
 export async function createApp(): Promise<AppHandle> {
   const app = express();
-  if (config.trustProxy) app.set('trust proxy', 1);
+  if (config.trustProxy) app.set('trust proxy', config.trustProxy);
   app.disable('x-powered-by');
   app.use(
     helmet({
@@ -40,6 +41,7 @@ export async function createApp(): Promise<AppHandle> {
         },
       },
       crossOriginEmbedderPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' }, // unduhan ekspor dari Dashboard di domain lain
       hsts: config.isProd,
     }),
   );
@@ -49,7 +51,7 @@ export async function createApp(): Promise<AppHandle> {
 
   const server = http.createServer(app);
   const io = new Server(server, {
-    cors: { origin: false },
+    cors: { origin: (origin, cb) => cb(null, originAllowed(origin)) },
     maxHttpBufferSize: 64 * 1024,
     pingInterval: 20_000,
     pingTimeout: 25_000,
@@ -71,7 +73,7 @@ export async function createApp(): Promise<AppHandle> {
   registry.startLoops();
   attachSockets(io, registry, { trustProxy: config.trustProxy });
 
-  app.use('/api', apiRouter(registry));
+  app.use('/api', corsMiddleware, apiRouter(registry));
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Tidak ditemukan' }));
 
   // Frontend statis: dashboard guru di /guru, game siswa di /

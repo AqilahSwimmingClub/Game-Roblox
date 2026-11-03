@@ -137,7 +137,10 @@ export class Stage {
   }
 
   /** Tempatkan avatar juara di podium: 1 tengah (tertinggi), 2 kiri, 3 kanan. */
+  /** Karakter juara yang sedang tampil di podium (untuk uji otomatis). */
+  podiumShown: { rank: number; nama: string; karakter: number }[] = [];
   showWinners(top3: PodiumEntry[]) {
+    this.podiumShown = top3.map((e) => ({ rank: e.rank, nama: e.nama, karakter: e.avatar.karakter }));
     for (const a of this.podiumAvatars) a.dispose();
     this.podiumAvatars = [];
     const layout = buildPodium();

@@ -34,7 +34,7 @@ export const DEFAULT_SETTINGS: SessionSettings = {
   secondChance: true,
   pointMode: 'personal',
   density: 0.5,
-  requireApproval: false,
+  requireApproval: true, // guru menyetujui setiap siswa yang masuk (alur kelas resmi)
   showLeaderboard: true,
 };
 

@@ -1,6 +1,6 @@
 /** Dashboard Guru EDUVERSE — router hash sederhana: #/masuk, #/, #/sesi/baru, #/sesi/:id, #/soal. */
 import './style.css';
-import { h, api, runLeave, ApiError } from './lib.js';
+import { h, api, runLeave, ApiError, setToken } from './lib.js';
 import { loginView } from './views/auth.js';
 import { homeView } from './views/home.js';
 import { sessionFormView } from './views/sessionForm.js';
@@ -26,6 +26,7 @@ function topbar(active: string) {
         onclick: async (e: Event) => {
           e.preventDefault();
           await api('/auth/logout', { method: 'POST' }).catch(() => undefined);
+          setToken('');
           me = null;
           location.hash = '#/masuk';
         },

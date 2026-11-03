@@ -41,6 +41,11 @@ export class RemotePlayers {
     scene.add(this.root);
   }
 
+  /** Karakter avatar pemain lain yang sedang tampil (untuk uji otomatis). */
+  characters(): { nama: string; karakter: number }[] {
+    return [...this.map.values()].map((r) => ({ nama: r.nama, karakter: Number(r.avatar.key.split(':')[0]) }));
+  }
+
   /** Terapkan snapshot server {t, list, gone}. */
   apply(msg: { t: number; list: (RemotePlayer | Compact)[]; gone: string[] }) {
     const localNow = performance.now();

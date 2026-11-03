@@ -1,6 +1,6 @@
 /** Bank soal: cari/saring/halaman, tambah/ubah/hapus, soal contoh, templat & impor Word/Excel (pratinjau → simpan). */
 import { SUBJECTS, validateQuestion, type QuestionRecord, type QuestionType, type AnswerKey } from '@eduverse/shared';
-import { h, api, btn, toast, modal } from '../lib.js';
+import { h, api, btn, toast, modal, download } from '../lib.js';
 
 type Q = QuestionRecord;
 type QIn = Omit<Q, 'id'>;
@@ -166,7 +166,7 @@ export async function questionsView(): Promise<HTMLElement> {
         { class: 'card col' },
         h('h2', null, 'Impor Soal dari Word / Excel'),
         h('p', { class: 'muted', style: 'margin:0' }, 'Gunakan templat resmi agar kolom terbaca benar. Server memeriksa setiap baris (kunci, opsi, poin, duplikat) sebelum disimpan.'),
-        h('div', { class: 'row' }, h('a', { class: 'btn putih kecil', href: '/api/questions/template.xlsx' }, 'Unduh templat Excel'), h('a', { class: 'btn putih kecil', href: '/api/questions/template.docx' }, 'Unduh templat Word')),
+        h('div', { class: 'row' }, btn('Unduh templat Excel', 'putih kecil', () => download('/questions/template.xlsx', 'templat-soal-eduverse.xlsx')), btn('Unduh templat Word', 'putih kecil', () => download('/questions/template.docx', 'templat-soal-eduverse.docx'))),
         file,
         btn('Periksa File', 'biru', async () => {
           const f = file.files?.[0];

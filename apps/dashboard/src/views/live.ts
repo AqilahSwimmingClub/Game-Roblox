@@ -5,8 +5,9 @@
  */
 import { io, type Socket } from 'socket.io-client';
 import QRCode from 'qrcode';
-import { EV, KOTA, KOTA_ZONES, WORLDS, type SessionPublicState } from '@eduverse/shared';
-import { h, api, btn, toast, onLeave, fmtDate, modal } from '../lib.js';
+import { EV, KOTA, KOTA_ZONES, WORLDS, CHARACTERS, type SessionPublicState, type AvatarConfig } from '@eduverse/shared';
+import { h, api, btn, toast, onLeave, fmtDate, modal, download, getToken } from '../lib.js';
+import { SERVER_URL } from '../server.js';
 
 interface LiveStudent {
   absen: number;
@@ -24,6 +25,7 @@ interface LiveStudent {
   benar: number;
   dijawab: number;
   rank: number | null;
+  avatar: AvatarConfig | null;
 }
 interface LiveData {
   state: SessionPublicState;
@@ -62,6 +64,12 @@ interface Results {
 }
 
 const nn = (...xs: (Node | null)[]) => xs.filter((x): x is Node => x !== null);
+/** Lencana karakter pilihan siswa (warna + nama karakter). */
+function charBadge(a: AvatarConfig | null | undefined) {
+  const c = a ? CHARACTERS[a.karakter] : undefined;
+  if (!c) return h('span', { class: 'muted' }, '—');
+  return h('span', { class: 'chip', style: `background:${c.warna}22;border:2px solid ${c.warna};color:#1E2A4A` }, h('span', { class: 'dot', style: `background:${c.warna}` }), c.nama);
+}
 const STATUS: Record<string, string> = { menunggu: 'Menunggu siswa', hitung: 'Hitung mundur', berjalan: 'Permainan berjalan', jeda: 'Dijeda', selesai: 'Selesai' };
 const SCENE: Record<string, string> = { lobi: 'Lobi', kota: 'Dunia Kota', hutan: 'Dunia Hutan', laut: 'Dunia Laut', angkasa: 'Luar Angkasa', podium: 'Podium' };
 
@@ -104,8 +112,8 @@ export async function liveView(id: string): Promise<HTMLElement> {
       st === 'berjalan' || st === 'jeda' ? btn('+5 menit', 'putih besar', act('extend', { minutes: 5 })) : null,
       st !== 'selesai' && st !== 'menunggu' ? btn('■ Akhiri Permainan', 'merah besar', confirmAct('Akhiri permainan sekarang? Skor akhir akan dikunci.', act('end'))) : null,
       st === 'selesai' ? btn(live.podiumShown ? '🏆 Tampilkan Podium Lagi' : '🏆 Tampilkan Podium 3D', 'ungu besar', act('podium')) : null,
-      h('a', { class: 'btn putih besar', href: `/api/sessions/${id}/export.xlsx` }, 'Ekspor Excel'),
-      h('a', { class: 'btn putih besar', href: `/api/sessions/${id}/export.pdf` }, 'Ekspor PDF'),
+      btn('Ekspor Excel', 'putih besar', () => download(`/sessions/${id}/export.xlsx`, `hasil-${d.code}.xlsx`)),
+      btn('Ekspor PDF', 'putih besar', () => download(`/sessions/${id}/export.pdf`, `hasil-${d.code}.pdf`)),
       st === 'menunggu' ? btn('Hapus Sesi', 'putih besar', confirmAct('Hapus sesi ini beserta datanya?', async () => {
         await api(`/sessions/${id}`, { method: 'DELETE' });
         location.hash = '#/';
@@ -118,12 +126,19 @@ export async function liveView(id: string): Promise<HTMLElement> {
     statusEl.textContent = STATUS[live.state.status] ?? live.state.status;
     const ready = live.students.filter((s) => s.ready && s.online).length;
     const claimed = live.students.filter((s) => s.claimed).length;
-    const waiting = live.students.filter((s) => s.claimed && !s.approved).length;
+    const waitingList = live.students.filter((s) => s.claimed && !s.approved);
+    const waiting = waitingList.length;
     countsEl.replaceChildren(...nn(
       h('span', { class: 'chip hijau' }, `${live.online} siswa online`),
       h('span', { class: 'chip biru' }, `${claimed} identitas terdaftar`),
       h('span', { class: 'chip ungu' }, `${ready} siap`),
       waiting ? h('span', { class: 'chip oranye' }, `${waiting} menunggu persetujuan`) : null,
+      waiting
+        ? btn(`Setujui Semua (${waiting})`, 'hijau kecil', async () => {
+            for (const s of waitingList) await api(`/sessions/${id}/roster/${s.absen}/approve`, { method: 'POST' });
+            toast(`${waiting} siswa disetujui`);
+          })
+        : null,
       ...Object.entries(live.scenes).map(([k, n]) => h('span', { class: 'chip abu' }, `${SCENE[k] ?? k}: ${n}`)),
     ));
   }
@@ -163,7 +178,9 @@ export async function liveView(id: string): Promise<HTMLElement> {
               ),
               h('td', null, s.online ? `${SCENE[s.scene ?? ''] ?? '—'}${s.zoneName ? ' · ' + s.zoneName : ''}` : '—'),
               h('td', { style: 'font-family:Fredoka;font-size:18px' }, String(s.poin)),
-              h('td', null, `${s.benar}/${s.dijawab}`),
+              h('td', null, charBadge(s.avatar)),
+              h('td', null, `${s.benar} benar / ${s.dijawab - s.benar} salah`),
+              h('td', null, live.state.progressTarget ? `${s.dijawab}/${live.state.progressTarget}` : String(s.dijawab)),
               h('td', null, s.rank ? `#${s.rank}` : '—'),
               h(
                 'td',
@@ -179,7 +196,7 @@ export async function liveView(id: string): Promise<HTMLElement> {
               ),
             ),
           )
-        : [h('tr', null, h('td', { colspan: 8, class: 'muted' }, 'Belum ada siswa. Bagikan kode kelas atau tautan di atas.'))]),
+        : [h('tr', null, h('td', { colspan: 10, class: 'muted' }, 'Belum ada siswa. Bagikan kode kelas atau tautan di atas.'))]),
     );
   }
 
@@ -264,6 +281,23 @@ export async function liveView(id: string): Promise<HTMLElement> {
     const r = await api<Results>(`/sessions/${id}/results`);
     resultsEl.replaceChildren(...nn(
       h('h2', null, 'Hasil Akhir'),
+      h(
+        'div',
+        { class: 'row', style: 'align-items:flex-end;gap:12px' },
+        ...[2, 1, 3]
+          .map((rk) => ({ rk, s: live.students.find((x) => x.rank === rk) }))
+          .filter((x) => x.s)
+          .map(({ rk, s }) =>
+            h(
+              'div',
+              { class: 'card col', style: `align-items:center;min-width:160px;padding:12px;background:${rk === 1 ? '#FFF6D6' : rk === 2 ? '#F1F4F9' : '#FBEBDD'}` },
+              h('div', { style: 'font-family:Fredoka;font-size:28px' }, `Juara ${rk}`),
+              h('div', { style: 'font-weight:900;font-size:18px' }, `${s!.nama} (${s!.absen})`),
+              charBadge(s!.avatar),
+              h('div', { style: 'font-family:Fredoka;font-size:22px' }, `${s!.poin} poin`),
+            ),
+          ),
+      ),
       h('div', { class: 'row' }, h('span', { class: 'chip biru' }, `${r.answerCount} jawaban tercatat`), ...Object.entries(r.perSubject).map(([k, v]) => h('span', { class: 'chip ungu' }, `${k}: ${v.benar}/${v.total} benar`))),
       h(
         'div',
@@ -296,7 +330,8 @@ export async function liveView(id: string): Promise<HTMLElement> {
   }
 
   // ---------- socket real-time ----------
-  const socket: Socket = io('/teacher', { transports: ['websocket', 'polling'], withCredentials: true });
+  // Server bisa di domain lain → token dikirim lewat auth handshake (bukan cookie lintas situs)
+  const socket: Socket = io(`${SERVER_URL}/teacher`, { transports: ['websocket', 'polling'], auth: (cb) => cb({ token: getToken() }) });
   const connEl = h('span', { class: 'chip abu' }, 'Menghubungkan…');
   const watch = () =>
     socket.emit('watch', { sessionId: id }, (r: { ok: boolean; live?: LiveData; error?: string }) => {
@@ -373,7 +408,7 @@ export async function liveView(id: string): Promise<HTMLElement> {
       h('div', { class: 'card col' }, h('h2', null, 'Papan Skor Langsung'), lbEl),
       h('div', { class: 'card col' }, h('h2', null, 'Sebaran Siswa — Dunia Kota'), h('div', { class: 'row', style: 'align-items:flex-start;flex-wrap:nowrap' }, h('div', { style: 'flex:1.3;min-width:0' }, heat), h('div', { style: 'flex:1;min-width:0;font-size:14px' }, zoneList))),
     ),
-    h('div', { class: 'card col' }, h('h2', null, 'Siswa'), h('div', { class: 'tablewrap' }, h('table', null, h('thead', null, h('tr', null, ...['Absen', 'Nama', 'Status', 'Lokasi', 'Poin', 'Benar', 'Peringkat', 'Aksi'].map((t) => h('th', null, t)))), studentsBody))),
+    h('div', { class: 'card col' }, h('h2', null, 'Siswa'), h('div', { class: 'tablewrap' }, h('table', null, h('thead', null, h('tr', null, ...['Absen', 'Nama', 'Status', 'Lokasi', 'Poin', 'Karakter', 'Jawaban', 'Progres', 'Peringkat', 'Aksi'].map((t) => h('th', null, t)))), studentsBody))),
     h('div', { class: 'card col' }, h('h2', null, 'Umpan Jawaban Langsung'), feedEl),
   );
 }

@@ -29,12 +29,15 @@ class Bucket {
   }
 }
 
-function ipOf(s: Socket) {
+/** IP klien di balik `hops` proxy tepercaya (ambil dari kanan agar tidak bisa dipalsukan klien). */
+function ipOf(s: Socket, hops: number) {
   const xf = s.handshake.headers['x-forwarded-for'];
-  return (typeof xf === 'string' ? xf.split(',')[0]?.trim() : undefined) ?? s.handshake.address;
+  if (typeof xf !== 'string' || !hops) return s.handshake.address;
+  const list = xf.split(',').map((x) => x.trim()).filter(Boolean);
+  return list[list.length - hops] ?? list[0] ?? s.handshake.address;
 }
 
-export function attachSockets(io: Server, registry: RuntimeRegistry, opts: { trustProxy: boolean }) {
+export function attachSockets(io: Server, registry: RuntimeRegistry, opts: { trustProxy: number }) {
   const play = io.of('/play');
   const teacher = io.of('/teacher');
   const joinLimiter = new Bucket(config.joinRatePerMin, 60_000); // per IP; kelas sering berbagi satu IP (NAT)
@@ -42,7 +45,7 @@ export function attachSockets(io: Server, registry: RuntimeRegistry, opts: { tru
 
   play.on('connection', (socket) => {
     let rt: SessionRuntime | null = null;
-    const ip = opts.trustProxy ? ipOf(socket) : socket.handshake.address;
+    const ip = ipOf(socket, opts.trustProxy);
     let stateCount = 0;
     let stateWindow = Date.now();
 

@@ -380,9 +380,32 @@ export class SessionRuntime {
   async approve(absen: number, approved: boolean) {
     const s = this.students.get(absen);
     if (!s) return false;
+    if (!approved) return this.rejectRequest(s);
     s.approved = approved;
     await query('UPDATE session_roster SET approved = $1 WHERE id = $2', [approved, s.rosterId]);
     if (s.socketId) this.play.to(s.socketId).emit(EV.identityApproved, { approved });
+    this.pushTeacher();
+    return true;
+  }
+
+  /**
+   * Guru menolak permintaan masuk: klaim dilepas sehingga siswa bisa mencoba lagi dengan nomor/nama yang benar.
+   * Nomor absen di luar daftar kelas yang belum punya jawaban dihapus agar nomornya bebas dipakai lagi.
+   */
+  private async rejectRequest(s: Student) {
+    if (s.socketId) {
+      const p = this.players.get(s.socketId);
+      p?.socket.emit(EV.kicked, { reason: 'Guru belum menyetujui permintaan masuk. Periksa nomor absen dan nama panggilan, lalu coba lagi.', retry: true });
+      if (p) p.student = null;
+    }
+    s.socketId = null;
+    s.claimHash = null;
+    s.approved = false;
+    if (!s.preset && s.answered === 0) {
+      this.students.delete(s.absen);
+      await query('DELETE FROM session_roster WHERE id = $1 AND NOT EXISTS (SELECT 1 FROM answers WHERE roster_id = $1)', [s.rosterId]);
+    } else await query('UPDATE session_roster SET claim_hash = NULL, approved = false WHERE id = $1', [s.rosterId]);
+    this.play.to(this.room).emit(EV.roster, this.rosterList());
     this.pushTeacher();
     return true;
   }

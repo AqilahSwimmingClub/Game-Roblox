@@ -1,5 +1,5 @@
 /** Masuk / daftar guru (kata sandi di-hash bcrypt di server; sesi = cookie httpOnly 12 jam). */
-import { h, api, btn } from '../lib.js';
+import { h, api, btn, setToken } from '../lib.js';
 
 export function loginView(onDone: () => void): HTMLElement {
   let mode: 'masuk' | 'daftar' = 'masuk';
@@ -17,7 +17,8 @@ export function loginView(onDone: () => void): HTMLElement {
       if (mode === 'daftar') {
         await api('/auth/register', { method: 'POST', json: { email: email.value.trim(), password: pw.value, name: name.value.trim(), registrationCode: code.value.trim() || undefined } });
       }
-      await api('/auth/login', { method: 'POST', json: { email: email.value.trim(), password: pw.value } });
+      const r = await api<{ token: string }>('/auth/login', { method: 'POST', json: { email: email.value.trim(), password: pw.value } });
+      setToken(r.token);
       onDone();
     } catch (e) {
       err.textContent = (e as Error).message;

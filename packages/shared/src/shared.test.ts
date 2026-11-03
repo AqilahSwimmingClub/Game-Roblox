@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  CHARACTERS,
   buildKota,
   KOTA_ZONES,
   zoneAt,
@@ -119,7 +120,15 @@ describe('soal', () => {
     );
   });
   it('avatar disanitasi', () => {
-    expect(sanitizeAvatar({ kulit: 99, topi: 2 }).kulit).toBe(2);
-    expect(sanitizeAvatar({ kulit: 99, topi: 2 }).topi).toBe(2);
+    // nilai tidak valid → bawaan; data avatar lama (rambut/baju/topi) tetap aman dibaca
+    expect(sanitizeAvatar({ kulit: 99, topi: 2 })).toEqual({ karakter: 14, kulit: 2 });
+    expect(sanitizeAvatar({ karakter: 19, kulit: 0 })).toEqual({ karakter: 19, kulit: 0 });
+    expect(sanitizeAvatar({ karakter: 20, kulit: 1.5 })).toEqual({ karakter: 14, kulit: 2 });
+    expect(sanitizeAvatar('rusak')).toEqual({ karakter: 14, kulit: 2 });
+  });
+  it('20 karakter unik', () => {
+    expect(CHARACTERS).toHaveLength(20);
+    expect(new Set(CHARACTERS.map((c) => c.kode)).size).toBe(20);
+    CHARACTERS.forEach((c, i) => expect(c.id).toBe(i));
   });
 });

@@ -5,6 +5,7 @@
  * - Jam server diperkirakan dari serverNow agar timer & bus sama di semua perangkat.
  */
 import { io, type Socket } from 'socket.io-client';
+import { SERVER_URL, SERVER_LABEL } from './server.js';
 import { EV, type AnswerPayload, type AvatarConfig, type SceneId, type SessionPublicState, type RosterEntry, type PublicQuestion, type AnswerResultMsg, type ActivePoint } from '@eduverse/shared';
 
 export interface Me {
@@ -36,16 +37,44 @@ export class NetClient {
   private clockOffset = 0;
   private reconnectHandlers = new Set<() => void>();
   connected = false;
+  /** Pernah tersambung sejak halaman dibuka (membedakan "server belum bisa dihubungi" dari "putus sementara"). */
+  everConnected = false;
+  lastError = '';
+  private statusHandlers = new Set<(s: { connected: boolean; error: string }) => void>();
 
   constructor() {
-    this.socket = io('/play', { transports: ['websocket', 'polling'], reconnectionDelay: 800, reconnectionDelayMax: 5000, autoConnect: true });
+    // Server bisa berada di domain lain (frontend Vercel ↔ backend Render): WebSocket langsung ke sana (WSS).
+    this.socket = io(`${SERVER_URL}/play`, { transports: ['websocket', 'polling'], reconnectionDelay: 800, reconnectionDelayMax: 5000, autoConnect: true, timeout: 20000 });
     this.socket.on('connect', () => {
-      const was = this.connected;
+      const was = this.everConnected;
       this.connected = true;
+      this.everConnected = true;
+      this.lastError = '';
+      this.emitStatus();
       if (was || this.code) for (const h of this.reconnectHandlers) h();
     });
-    this.socket.on('disconnect', () => (this.connected = false));
+    this.socket.on('disconnect', () => {
+      this.connected = false;
+      this.emitStatus();
+    });
+    this.socket.on('connect_error', (e: Error) => {
+      this.lastError = e.message;
+      this.emitStatus();
+    });
     this.socket.on(EV.session, (s: SessionPublicState) => this.syncClock(s.serverNow));
+  }
+
+  onStatus(fn: (s: { connected: boolean; error: string }) => void) {
+    this.statusHandlers.add(fn);
+  }
+  private emitStatus() {
+    for (const h of this.statusHandlers) h({ connected: this.connected, error: this.lastError });
+  }
+  /** Pesan yang jujur saat belum/tidak tersambung. */
+  offlineMessage() {
+    return this.everConnected
+      ? 'Koneksi ke server terputus. Menyambung ulang otomatis…'
+      : `Server EDUVERSE belum bisa dihubungi (${SERVER_LABEL}). Bila server baru dinyalakan, tunggu ±1 menit lalu coba lagi.`;
   }
 
   onReconnect(fn: () => void) {
@@ -64,7 +93,7 @@ export class NetClient {
   private call<T>(ev: string, data?: unknown, timeout = 8000): Promise<T | Fail> {
     return new Promise((resolve) => {
       this.socket.timeout(timeout).emit(ev, data, (err: Error | null, res: T | Fail) => {
-        if (err) resolve({ ok: false, error: this.connected ? 'Server tidak menjawab. Coba lagi.' : 'Koneksi terputus. Menyambung ulang…' });
+        if (err) resolve({ ok: false, error: this.connected ? 'Server tidak menjawab. Coba lagi.' : this.offlineMessage() });
         else resolve(res);
       });
     });
