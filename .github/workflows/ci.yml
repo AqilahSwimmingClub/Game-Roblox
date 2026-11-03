@@ -46,7 +46,7 @@ jobs:
           retention-days: 7
 
   e2e:
-    name: E2E dua pemain + uji beban singkat
+    name: E2E kelas (topologi Vercel↔Render) + keamanan + demo + uji beban singkat
     needs: check
     runs-on: ubuntu-latest
     services:
@@ -62,8 +62,10 @@ jobs:
     env:
       DATABASE_URL: postgres://eduverse:eduverse@localhost:5432/eduverse
       BASE_URL: http://localhost:3000
+      WEB_URL: http://localhost:4173
       TEACHER_EMAIL: guru-ci@sekolah.id
       TEACHER_PASSWORD: ci-password-123
+      TEACHER_REGISTRATION_CODE: kode-ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -72,15 +74,28 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run build
+      # frontend statis terpisah seperti Vercel, menunjuk ke backend di origin lain
+      - run: npm run build:web
+        env:
+          EDUVERSE_SERVER_URL: http://localhost:3000
       - run: npm install --no-save --no-audit --no-fund playwright@1.63.0 && npx playwright install --with-deps chromium
-      - name: Jalankan server
+      - name: Jalankan backend (seperti Render) dan frontend statis (seperti Vercel)
+        env:
+          PUBLIC_URL: http://localhost:4173
+          CORS_ORIGINS: http://localhost:4173
+          EXTRA_CONNECT_SRC: http://localhost:3000 ws://localhost:3000
         run: |
           (cd apps/server && nohup node dist/index.js > ../../server.log 2>&1 &)
-          for i in $(seq 1 30); do curl -sf http://localhost:3000/api/health && break; sleep 1; done
+          nohup node tests/web-static-server.mjs 4173 > web.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:3000/api/health && curl -sf -o /dev/null http://localhost:4173/guru/ && break; sleep 1; done
       - run: node tests/setup-teacher.mjs
       - run: node tests/e2e/two-players.mjs
         env:
           SHOTS: e2e-shots
+      - run: node tests/e2e/demo.mjs
+        env:
+          SHOTS: e2e-shots
+      - run: node tests/security/abuse.mjs
       - run: node tests/load/bots.mjs --players 50,100 --duration 20
         env:
           OUT: loadtest-ci.json

@@ -52,9 +52,12 @@ export async function createApp(): Promise<AppHandle> {
   const server = http.createServer(app);
   const io = new Server(server, {
     cors: { origin: (origin, cb) => cb(null, originAllowed(origin)) },
+    // opsi cors hanya berlaku untuk HTTP long-polling; upgrade WebSocket diperiksa di sini
+    allowRequest: (req, cb) => cb(null, originAllowed(req.headers.origin)),
     maxHttpBufferSize: 64 * 1024,
-    pingInterval: 20_000,
-    pingTimeout: 25_000,
+    // HP sering berpindah jaringan: sambungan mati terdeteksi ≤ 25 dtk lalu klien menyambung ulang otomatis
+    pingInterval: 10_000,
+    pingTimeout: 15_000,
     connectionStateRecovery: { maxDisconnectionDuration: 60_000 },
   });
 

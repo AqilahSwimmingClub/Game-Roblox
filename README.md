@@ -10,7 +10,10 @@ dari **Dashboard Guru** di tablet Android. Acuan desain: dokumen *EDUVERSE Tahap
 
 | Fitur | Status |
 |---|---|
-| UI EDUVERSE (splash, sambutan, kode kelas, identitas absen+nama, avatar 3D, lobi, ruang tunggu, HUD) | ✅ berjalan |
+| UI EDUVERSE (splash, sambutan, kode kelas, identitas absen+nama, lobi, ruang tunggu, HUD) | ✅ berjalan |
+| **20 karakter 3D orisinal EDUVERSE** (pelajar SD/SMP/SMA, batik, profesi, petualang, pahlawan & robot) pada satu rig dengan animasi idle/jalan/lari/lompat; tampil di pemilihan, dunia, pemain lain, Dashboard, podium | ✅ |
+| Alur kelas resmi: kode → absen+nama → **persetujuan guru** → pilih karakter → ruang tunggu → guru Mulai → semua masuk Kota | ✅ |
+| Mode Demo Kota tanpa kode (`/demo.html`) | ✅ dipertahankan |
 | Dashboard Guru: login, buat sesi, kode + tautan + QR, mulai/jeda/+5 menit/akhiri, setujui/tolak/reset/keluarkan siswa, papan skor & peta sebaran langsung, umpan jawaban, hasil, ekspor Excel/PDF | ✅ berjalan |
 | Bank soal: tambah/ubah/hapus, cari & saring, soal contoh, templat + impor Word/Excel dengan pratinjau & deteksi duplikat | ✅ berjalan |
 | Lobi 3D dengan 4 portal (hanya **Kota** yang terbuka) | ✅ |
@@ -22,7 +25,8 @@ dari **Dashboard Guru** di tablet Android. Acuan desain: dokumen *EDUVERSE Tahap
 | Podium 3D juara 1–3 | ✅ |
 | Kualitas grafis Rendah / Sedang / Tinggi / Otomatis (turun otomatis bila FPS rendah) | ✅ |
 | Dunia Hutan, Laut, Luar Angkasa | ⏳ tahap berikutnya (portal tampil "segera hadir") |
-| Deployment publik | ⏳ belum ada platform terhubung — lihat [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
+| Frontend publik (Vercel: game `/`, Dashboard `/guru/`, demo) | ✅ konfigurasi siap (`vercel.json`); terbit otomatis dari GitHub |
+| Backend online (Render: Node + Socket.IO + PostgreSQL) | ⏳ `render.yaml` siap — perlu diaktifkan sekali oleh pemilik akun, lihat [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 
 ## Struktur
 
@@ -72,18 +76,30 @@ Mode pengembangan dengan hot reload: `npm run dev` (server) lalu `npm run dev -w
 | `npm test` | Unit test shared + integrasi server (butuh `DATABASE_URL` ke database uji) |
 | `npm run db:migrate` / `npm run db:seed` | Migrasi manual / buat akun guru dari `SEED_TEACHER_*` |
 | `node tests/setup-teacher.mjs` | Siapkan guru uji + soal contoh di server yang berjalan |
-| `npm run e2e` | Uji guru + 2 siswa di 3 browser terpisah (butuh `playwright` + Chromium) |
+| `npm run build:web` | Build frontend statis untuk Vercel (game + Dashboard `/guru/` + demo + `eduverse-config.js`) |
+| `npm run e2e` | Uji alur kelas guru + 2 siswa di 3 browser terpisah (butuh `playwright` + Chromium) |
+| `npm run e2e:demo` / `npm run test:security` | Uji Mode Demo / uji keamanan & kasus tepi |
+| `node tests/web-static-server.mjs 4173` | Sajikan build web seperti Vercel (uji lintas origin lokal) |
 | `npm run loadtest -- --players 50,100,200,500 --duration 60` | Uji beban |
 
 Tambahkan `?debug=1` pada alamat game untuk menampilkan FPS, jumlah chunk, draw call, dan jumlah pemain lain.
 
-## Hasil pengujian (dijalankan 3 November 2026, lingkungan pengembangan)
+## Hasil pengujian (dijalankan 4 November 2026, lingkungan pengembangan — bukan perangkat fisik)
 
-- **Typecheck** semua paket: lulus. **Unit/integrasi**: shared 15/15, server 6/6 lulus. **Build**: lulus (game ±175 KB gzip, dashboard ±36 KB gzip).
-- **E2E** (`tests/e2e/two-players.mjs`): 9/9 langkah lulus — guru membuat sesi dari Dashboard → 2 siswa di 2 proses Chromium terpisah masuk → Dashboard menampilkan 2 siswa online → mulai → keduanya di Kota dan saling melihat → siswa berjalan ke titik soal, menjawab, dinilai server → umpan jawaban & skor muncul di Dashboard → akhiri → hasil akhir → Podium 3D.
-- **Uji beban**: 50/100/200/500 bot, 0 gagal gabung, 0 putus, semua jawaban tersimpan; balasan jawab p95 36 ms pada 500 pemain; CPU server rata-rata 50% satu inti. Rincian & batasan: [docs/LOADTEST.md](docs/LOADTEST.md).
-- **Belum diuji**: HP Android fisik, WiFi sekolah sungguhan, Docker image (tidak ada Docker daemon di lingkungan ini), banyak instance dengan Redis.
-- **FPS**: uji otomatis memakai GPU perangkat lunak (SwiftShader) dan hanya mencapai ±11–17 FPS — angka ini **tidak mewakili** HP sungguhan. FPS di HP siswa harus diukur langsung dengan `?debug=1`.
+- **Typecheck** semua paket lulus. **Unit/integrasi**: shared 16/16, server 6/6 (termasuk alur persetujuan guru).
+- **E2E alur kelas** (`tests/e2e/two-players.mjs`) **12/12**, dijalankan dalam topologi produksi: frontend statis di origin lain
+  (header `vercel.json`) ↔ backend + PostgreSQL. Guru membuat sesi → 2 siswa (2 proses Chromium) mengisi absen & nama → guru menyetujui →
+  siswa memilih Astronot & Srikandi Cahaya → ruang tunggu → Mulai → saling melihat dengan karakter pilihan → jawaban dinilai server →
+  umpan & skor di Dashboard → akhiri → podium 3D dengan karakter juara yang benar.
+- **Keamanan & kasus tepi** (`tests/security/abuse.mjs`) **20/20**: kode salah, absen kembar, belum disetujui, tolak lalu coba lagi,
+  API/socket tanpa login, token palsu, sesi guru lain, origin asing (HTTP & WebSocket), event skor palsu, buka soal dari jauh,
+  teleport, token jawaban palsu/ganda, kunci jawaban tidak bocor, sambung ulang (socket & browser offline → online, terdeteksi ±23 dtk).
+- **Mode Demo** (`tests/e2e/demo.mjs`): terbuka, bisa digerakkan, tanpa galat dan tanpa menghubungi server.
+- **Uji beban**: 500 bot pada 1 instance → 0 gagal, 0 putus, balasan jawab p95 ±37 ms. Rincian: [docs/LOADTEST.md](docs/LOADTEST.md).
+- **Belum diuji**: HP Android & tablet fisik, deployment Render/Vercel sungguhan (tidak bisa diakses dari lingkungan pengembangan),
+  WiFi sekolah, Docker image, banyak instance dengan Redis.
+- **FPS**: uji otomatis memakai GPU perangkat lunak (±11–28 FPS) — **tidak mewakili** HP. Ukur di HP dengan `?debug=1`.
+  Satu avatar = ±6 draw call (bagian tubuh digabung, satu material bersama).
 
 ## Keamanan & privasi
 

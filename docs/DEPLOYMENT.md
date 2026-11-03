@@ -1,83 +1,97 @@
-# Panduan Deployment EDUVERSE
+# Panduan Deployment EDUVERSE (Vercel + Render)
 
-> **Status:** belum ada platform hosting yang terhubung ke proyek ini, jadi **belum ada alamat website publik**.
-> Panduan ini menjelaskan cara memasangnya sendiri. Alamat seperti `eduverse.contoh-sekolah.sch.id` di bawah hanya contoh.
+> **Status jujur:** frontend sudah ada di Vercel (`eduverse-web-preview.vercel.app`). Backend persisten (API + Socket.IO
+> + PostgreSQL) **belum aktif di internet** karena belum ada akun hosting backend yang terhubung ke proyek ini.
+> Itulah penyebab pesan *"Koneksi terputus. Menyambung ulang…"*: Vercel hanya menyajikan file statis,
+> sehingga `/socket.io` dan `/api` tidak punya server. Langkah di bawah menyalakannya.
 
-EDUVERSE adalah **satu aplikasi Node.js** yang melayani:
+## Arsitektur
 
-| Alamat | Isi |
-|---|---|
-| `/` | Game siswa (Three.js) — dibuka di Chrome HP |
-| `/guru/` | Dashboard Guru — dibuka di tablet Android |
-| `/api/*` | REST API (login guru, sesi, soal, impor, ekspor) |
-| `/socket.io/` | Multipemain real-time (WebSocket) |
-
-Kebutuhan: Node.js 20+ (disarankan 22), PostgreSQL 14+, **HTTPS wajib** di produksi (cookie login guru bertanda `Secure`, dan Chrome HP butuh konteks aman untuk fitur layar penuh/audio). Redis hanya bila menjalankan lebih dari satu instance.
-
-## Pilihan A — Docker Compose (VPS / server sekolah)
-
-```bash
-git clone https://github.com/AqilahSwimmingClub/game-roblox.git eduverse && cd eduverse
-cp .env.example .env
-# Edit .env: JWT_SECRET (openssl rand -hex 32), POSTGRES_PASSWORD, PUBLIC_URL=https://domain-anda
-docker compose up -d --build
-docker compose logs -f app        # migrasi database berjalan otomatis saat start
+```
+HP siswa (Chrome) ─┐                         ┌─ Render: eduverse-aqilah-api (Node 22)
+Tablet guru ───────┼─ HTTPS ─► Vercel ───────┤    REST API /api/*  +  Socket.IO (WSS)
+                   │   game "/", Dashboard   │    skor & validasi jawaban di server
+                   │   "/guru/", demo.html   │
+                   └──── WSS/HTTPS langsung ─┘─► Render PostgreSQL: eduverse-db
 ```
 
-Port 3000 hanya dibuka ke `127.0.0.1`. Pasang reverse proxy HTTPS di depannya, misalnya **Caddy** (sertifikat Let's Encrypt otomatis):
+- **Vercel** (proyek yang sudah ada) — hanya file statis: game, Dashboard Guru, Mode Demo. Dibangun dengan `npm run build:web`
+  (`vercel.json` di akar repo, plus `apps/game/vercel.json` bila *Root Directory* proyek diatur ke `apps/game`).
+- **Render** — server Node.js yang selalu hidup (WebSocket butuh proses persisten; Vercel Functions tidak cocok) + PostgreSQL.
+- Frontend tahu alamat backend dari `/eduverse-config.js`, ditulis saat build dari variabel `EDUVERSE_SERVER_URL`
+  (bawaan: `https://eduverse-aqilah-api.onrender.com`).
+- Login guru memakai token **Bearer** (bukan cookie lintas situs yang sering diblokir Chrome HP). Server hanya menerima
+  origin dari `CORS_ORIGINS` (HTTP & WebSocket).
 
-```caddyfile
-eduverse.contoh-sekolah.sch.id {
-    encode zstd gzip
-    reverse_proxy 127.0.0.1:3000
-}
-```
+## Langkah 1 — Nyalakan backend di Render (±10 menit, sekali saja)
 
-atau **Nginx** (WebSocket wajib diteruskan):
+1. Masuk ke <https://dashboard.render.com> (bisa daftar dengan akun GitHub yang memiliki repo ini).
+2. **New → Blueprint** → pilih repo `AqilahSwimmingClub/Game-Roblox` → pilih branch **`dev/eduverse-online-avatar20`**
+   (atau `main` setelah PR digabung). Render membaca `render.yaml` dan membuat:
+   - layanan web `eduverse-aqilah-api` (region Singapura, Node 22, `npm ci --include=dev && npm run build`, `npm start`)
+   - database `eduverse-db` (PostgreSQL), `DATABASE_URL` tersambung otomatis, `JWT_SECRET` dibuat acak otomatis.
+3. Saat diminta, isi **`TEACHER_REGISTRATION_CODE`** dengan kode rahasia pilihan Anda (untuk mendaftarkan guru kedua dst.).
+4. Tunggu status **Live**. Catat alamatnya, mis. `https://eduverse-aqilah-api.onrender.com`.
+   Uji: buka `https://<alamat>/api/health` → harus `{"ok":true,...}`.
+5. Bila Render memberi alamat lain (nama sudah dipakai orang), lanjutkan Langkah 2 poin 2.
 
-```nginx
-location / {
-    proxy_pass http://127.0.0.1:3000;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 120s;
-}
-```
+Migrasi database berjalan otomatis saat server mulai.
 
-Setelah aktif, buka `https://domain-anda/guru/`, daftarkan **guru pertama** (tanpa kode). Guru berikutnya butuh `TEACHER_REGISTRATION_CODE`.
+## Langkah 2 — Sambungkan Vercel ke backend
 
-> Catatan: `Dockerfile` dan `docker-compose.yml` sudah ditulis tetapi **belum dibangun/diuji** di lingkungan pengembangan ini (tidak ada Docker daemon). Uji sekali di server Anda sebelum dipakai kelas.
+1. Vercel Dashboard → proyek **eduverse-web-preview** → *Settings → Git*: pastikan *Production Branch* = branch yang
+   ingin diterbitkan (saat ini `test/eduverse-offline-demo`; ganti ke `dev/eduverse-online-avatar20` untuk menguji tahap ini,
+   atau `main` setelah PR digabung). Setiap push ke branch lain otomatis membuat *Preview Deployment*.
+2. *Settings → Environment Variables* (opsional bila alamat Render = bawaan):
+   `EDUVERSE_SERVER_URL = https://<alamat-render-anda>` → *Redeploy*.
+3. *Settings → Build & Development*: biarkan *Build/Install Command* default — `vercel.json` sudah mengaturnya
+   (`npm run build:web`, output `apps/game/dist`). Jika *Root Directory* diisi `apps/game`, `apps/game/vercel.json` yang dipakai.
+4. Bila alamat Vercel berbeda dari `eduverse-web-preview.vercel.app`, ubah `PUBLIC_URL` dan `CORS_ORIGINS` di Render.
 
-## Pilihan B — Tanpa Docker
+## Langkah 3 — Verifikasi (urutan yang disarankan)
 
-```bash
-npm ci
-npm run build
-export NODE_ENV=production DATABASE_URL=postgres://... JWT_SECRET=... PUBLIC_URL=https://... TRUST_PROXY=1
-npm start            # = node apps/server/dist/index.js, migrasi otomatis
-```
+| # | Cek | Hasil yang benar |
+|---|---|---|
+| 1 | `https://<render>/api/health` | `{"ok":true}` |
+| 2 | `https://eduverse-web-preview.vercel.app/eduverse-config.js` | berisi alamat Render |
+| 3 | `https://eduverse-web-preview.vercel.app/guru/` | halaman Masuk Dashboard Guru |
+| 4 | Daftar guru pertama → *Bank Soal → Muat Soal Contoh* | 44 soal |
+| 5 | *Buat Sesi* | kode 6 karakter, tautan, QR |
+| 6 | HP buka tautan → absen + nama | Dashboard: "1 menunggu persetujuan" |
+| 7 | Setujui → HP pilih karakter → ruang tunggu → SIAP | kolom Karakter terisi |
+| 8 | HP kedua ikut → Mulai | keduanya di Dunia Kota, saling terlihat |
+| 9 | Jawab soal | umpan jawaban & skor muncul langsung di Dashboard |
+| 10 | Akhiri → Tampilkan Podium | podium 3D di HP dengan karakter juara |
+| 11 | `https://eduverse-web-preview.vercel.app/demo.html` | Mode Demo tetap jalan tanpa kode |
 
-Jalankan dengan pengelola proses (systemd/pm2) dan reverse proxy HTTPS seperti di atas.
+## Catatan paket gratis (penting untuk kelas sungguhan)
 
-## Pilihan C — PaaS (Render, Railway, Fly.io, dsb.)
+- **Render Web Service Free tertidur** setelah ±15 menit tanpa lalu lintas; permintaan pertama membangunkannya (±1 menit).
+  Game & Dashboard menampilkan pesan *"Server EDUVERSE belum bisa dihubungi … tunggu ±1 menit"* lalu tersambung sendiri.
+  **Buka Dashboard Guru 2–3 menit sebelum kelas.** Untuk pemakaian rutin, gunakan paket **Starter** (tidak tertidur).
+- **Render PostgreSQL Free berlaku terbatas** (Render menghapus database gratis setelah masa berlakunya). Untuk data jangka panjang
+  pakai paket berbayar atau PostgreSQL lain (mis. Neon/Supabase) dengan mengganti `DATABASE_URL` (tambahkan `?sslmode=require`).
+- Satu instance teruji menampung 500 pemain bot (lihat [LOADTEST.md](LOADTEST.md)); paket Free punya CPU/RAM lebih kecil
+  dari mesin uji, jadi untuk >100 siswa serentak gunakan paket berbayar.
 
-- Build command: `npm ci && npm run build` · Start command: `npm start`
-- Tambahkan PostgreSQL terkelola, isi variabel dari `.env.example`, set `TRUST_PROXY=1`.
-- Pastikan platform mendukung **WebSocket** dan sesi tidak dimatikan saat idle selama jam pelajaran.
+## Alternatif tanpa Render
 
-## Banyak instance (lebih dari ±500 pemain serentak)
+Backend yang sama dapat dijalankan di VPS/server sekolah dengan Docker (`docker compose up -d --build`, lihat `docker-compose.yml`)
+di belakang reverse proxy HTTPS (Caddy/Nginx, WebSocket wajib diteruskan). Isi `EDUVERSE_SERVER_URL` di Vercel dengan alamat HTTPS server tersebut,
+dan isi `CORS_ORIGINS`/`PUBLIC_URL` di server dengan alamat Vercel. Server juga bisa melayani game & Dashboard sendiri (satu domain) —
+cukup buka alamat server itu langsung.
 
-1. Siapkan Redis, isi `REDIS_URL` di semua instance (Socket.IO Redis adapter aktif otomatis).
-2. Load balancer **wajib sticky session** (mis. `ip_hash` di Nginx, atau cookie affinity), karena status permainan satu sesi disimpan di memori instance yang memuatnya.
-3. Hasil uji beban satu instance ada di [LOADTEST.md](LOADTEST.md).
+## Variabel lingkungan backend
 
-## Keamanan
+| Variabel | Wajib | Keterangan |
+|---|---|---|
+| `DATABASE_URL` | ✔ | PostgreSQL 14+ |
+| `JWT_SECRET` | ✔ | acak ≥ 32 karakter |
+| `PUBLIC_URL` | ✔ | alamat game untuk tautan & QR undangan (Vercel) |
+| `CORS_ORIGINS` | ✔ bila frontend di domain lain | dipisah koma; `*` = satu label, mis. preview Vercel |
+| `TRUST_PROXY` | disarankan | jumlah proxy di depan server (Render = 1) |
+| `TEACHER_REGISTRATION_CODE` | disarankan | kode pendaftaran guru ke-2 dst. |
+| `REDIS_URL` | opsional | banyak instance (perlu sticky session) |
+| `JOIN_RATE_PER_MIN`, `MAX_PLAYERS_PER_NODE`, `AUTO_MIGRATE` | opsional | lihat `.env.example` |
 
-- Jangan pernah commit `.env`. Rahasia hanya di environment server.
-- Ganti `JWT_SECRET` dan sandi database dengan nilai acak panjang.
-- Cadangkan database harian (`pg_dump`). Data siswa hanya nomor absen + nama panggilan; jangan isi nama lengkap/NIK.
-- Pembatasan laju sudah aktif (login, API, gabung sesi, paket posisi). Sesuaikan `JOIN_RATE_PER_MIN` bila seluruh sekolah berbagi satu IP publik.
+Rahasia **tidak pernah** di-commit: `.env` ada di `.gitignore`; di Render `JWT_SECRET` dibuat otomatis dan kode pendaftaran diisi manual.
