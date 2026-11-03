@@ -173,7 +173,11 @@ body.touch .desk-only { display: none !important; }
 .notify i { width: 14px; height: 14px; border-radius: 50%; flex: none; }
 
 /* ── Pop-up soal ── */
-.soal { width: min(680px, 100%); max-height: 100%; overflow: auto; padding: 0 0 18px; }
+.soal { width: min(680px, 100%); max-height: 100%; overflow: hidden; padding: 0 0 14px; }
+/* Kepala & tombol JAWAB selalu terlihat; hanya isi soal yang menggulir (penting di HP landscape) */
+.soal > header { flex: none; }
+.soal > .isi { flex: 1 1 auto; min-height: 0; overflow: auto; padding-bottom: 4px; }
+.soal > .col { flex: none; max-height: 55%; overflow: auto; }
 .soal header { background: var(--oranye); color: #fff; padding: 12px 16px; border-radius: 20px 20px 0 0; display: flex; align-items: center; gap: 12px; }
 .soal header .poin-chip { background: var(--kuning); color: var(--navy); border-radius: 999px; padding: 4px 12px; font-family: 'Fredoka'; font-size: 20px; }
 .soal .isi { padding: 16px 18px 0; display: flex; flex-direction: column; gap: 14px; }
@@ -223,7 +227,16 @@ body.touch .desk-only { display: none !important; }
   .logo { font-size: 52px; }
   .code-boxes span { height: 56px; width: 48px; font-size: 30px; }
   .soal .isi { padding-top: 10px; gap: 10px; }
-  .opsi button { min-height: 52px; }
+  .opsi button { min-height: 48px; font-size: 16px; }
+  .soal .teks { font-size: 17px; line-height: 1.25; }
+  .soal > header { padding: 6px 12px; }
+  .soal > header .btn { min-height: 40px; }
+  .soal .error { min-height: 0; }
+  .soal .btn.besar { min-height: 50px; font-size: 20px; }
+  .opsi { gap: 8px; }
+  .opsi button { padding: 4px 10px 4px 6px; }
+  .opsi button b { width: 34px; height: 34px; }
+  .soal { gap: 8px !important; }
   .stempel { font-size: 32px; }
   .tile .v { font-size: 28px; }
 }

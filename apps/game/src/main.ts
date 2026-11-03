@@ -399,6 +399,22 @@ engine.onFrame((dt, t) => {
   cam.distance = Math.max(cam.minDist, Math.min(cam.maxDist, cam.distance + input.zoom));
   input.zoom = 0;
 
+  // Autopilot khusus mode uji (?debug=1): berjalan biasa ke target lewat input yang sama — server tetap memvalidasi.
+  if (debug && autopilot) {
+    const dx = autopilot.x - player.body.x;
+    const dz = autopilot.z - player.body.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 1.6) {
+      autopilot = null;
+      input.moveX = input.moveY = 0;
+    } else {
+      cam.yaw = Math.atan2(-dx, -dz);
+      input.moveX = 0;
+      input.moveY = 1;
+      input.jump = player.body.grounded && t % 1.2 < 0.05; // lompat kecil sesekali bila tersangkut
+    }
+  }
+
   const bus = stage.bus;
   if (riding && bus) {
     const s = bus.seat();
@@ -442,6 +458,16 @@ engine.onFrame((dt, t) => {
   if (debug) debugEl.textContent = `FPS ${engine.fps.toFixed(0)} · ${engine.level} · chunk ${JSON.stringify(stage.view?.stats())} · pemain lain ${remote.count()} · draw ${engine.renderer.info.render.calls}`;
   exposeState();
 });
+let autopilot: { x: number; z: number } | null = null;
+if (debug) {
+  (window as unknown as { __eduDebug: unknown }).__eduDebug = {
+    goTo: (x: number, z: number) => void (autopilot = { x, z }),
+    stop: () => void (autopilot = null),
+    walking: () => autopilot !== null,
+    openPoints: () => (stage?.points?.list() ?? []).filter((e) => !e.done && !e.p.hidden).map((e) => ({ id: e.p.id, x: e.p.x, y: e.p.y, z: e.p.z, object: e.p.object })),
+    action: () => void doAction(),
+  };
+}
 const round = (v: number) => Math.round(v * 100) / 100;
 const debugEl = h('div', { class: 'stat' });
 if (debug) document.body.appendChild(debugEl);
