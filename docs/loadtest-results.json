@@ -1,0 +1,207 @@
+{
+  "base": "http://localhost:3000",
+  "durationSec": 60,
+  "at": "2026-11-03T16:12:55.739Z",
+  "results": [
+    {
+      "players": 50,
+      "sessions": 1,
+      "playing": 50,
+      "failedJoins": 0,
+      "errorsSample": [],
+      "joinAllMs": 1350,
+      "connectMs": {
+        "p50": 36,
+        "p95": 39
+      },
+      "joinAckMs": {
+        "p50": 55,
+        "p95": 67,
+        "p99": 70
+      },
+      "interactAckMs": {
+        "n": 237,
+        "p50": 1,
+        "p95": 4,
+        "p99": 10
+      },
+      "answerAckMs": {
+        "n": 417,
+        "p50": 3,
+        "p95": 6,
+        "p99": 8
+      },
+      "httpHealthMs": {
+        "p50": 2,
+        "p95": 4,
+        "max": 5
+      },
+      "snapshotsPerBotPerSec": {
+        "avg": 10,
+        "min": 10
+      },
+      "answers": 417,
+      "correct": 57,
+      "answerErrors": 0,
+      "answerErrorTexts": [],
+      "interactRejected": 0,
+      "positionCorrections": 0,
+      "unexpectedDisconnects": 0,
+      "server": {
+        "cpuAvg": 6,
+        "cpuMax": 13,
+        "rssMaxMb": 155
+      }
+    },
+    {
+      "players": 100,
+      "sessions": 2,
+      "playing": 100,
+      "failedJoins": 0,
+      "errorsSample": [],
+      "joinAllMs": 2390,
+      "connectMs": {
+        "p50": 21,
+        "p95": 40
+      },
+      "joinAckMs": {
+        "p50": 6,
+        "p95": 50,
+        "p99": 59
+      },
+      "interactAckMs": {
+        "n": 511,
+        "p50": 2,
+        "p95": 7,
+        "p99": 8
+      },
+      "answerAckMs": {
+        "n": 877,
+        "p50": 3,
+        "p95": 5,
+        "p99": 9
+      },
+      "httpHealthMs": {
+        "p50": 2,
+        "p95": 4,
+        "max": 6
+      },
+      "snapshotsPerBotPerSec": {
+        "avg": 10,
+        "min": 10
+      },
+      "answers": 877,
+      "correct": 145,
+      "answerErrors": 0,
+      "answerErrorTexts": [],
+      "interactRejected": 0,
+      "positionCorrections": 0,
+      "unexpectedDisconnects": 0,
+      "server": {
+        "cpuAvg": 10,
+        "cpuMax": 18,
+        "rssMaxMb": 167
+      }
+    },
+    {
+      "players": 200,
+      "sessions": 3,
+      "playing": 200,
+      "failedJoins": 0,
+      "errorsSample": [],
+      "joinAllMs": 4730,
+      "connectMs": {
+        "p50": 17,
+        "p95": 41
+      },
+      "joinAckMs": {
+        "p50": 3,
+        "p95": 24,
+        "p99": 48
+      },
+      "interactAckMs": {
+        "n": 983,
+        "p50": 2,
+        "p95": 5,
+        "p99": 8
+      },
+      "answerAckMs": {
+        "n": 1679,
+        "p50": 2,
+        "p95": 11,
+        "p99": 17
+      },
+      "httpHealthMs": {
+        "p50": 2,
+        "p95": 10,
+        "max": 16
+      },
+      "snapshotsPerBotPerSec": {
+        "avg": 10,
+        "min": 10
+      },
+      "answers": 1679,
+      "correct": 287,
+      "answerErrors": 0,
+      "answerErrorTexts": [],
+      "interactRejected": 0,
+      "positionCorrections": 0,
+      "unexpectedDisconnects": 0,
+      "server": {
+        "cpuAvg": 20,
+        "cpuMax": 27,
+        "rssMaxMb": 176
+      }
+    },
+    {
+      "players": 500,
+      "sessions": 6,
+      "playing": 500,
+      "failedJoins": 0,
+      "errorsSample": [],
+      "joinAllMs": 11856,
+      "connectMs": {
+        "p50": 17,
+        "p95": 54
+      },
+      "joinAckMs": {
+        "p50": 3,
+        "p95": 22,
+        "p99": 61
+      },
+      "interactAckMs": {
+        "n": 2327,
+        "p50": 7,
+        "p95": 21,
+        "p99": 31
+      },
+      "answerAckMs": {
+        "n": 4006,
+        "p50": 3,
+        "p95": 36,
+        "p99": 54
+      },
+      "httpHealthMs": {
+        "p50": 2,
+        "p95": 25,
+        "max": 45
+      },
+      "snapshotsPerBotPerSec": {
+        "avg": 10,
+        "min": 10
+      },
+      "answers": 4006,
+      "correct": 648,
+      "answerErrors": 0,
+      "answerErrorTexts": [],
+      "interactRejected": 0,
+      "positionCorrections": 0,
+      "unexpectedDisconnects": 0,
+      "server": {
+        "cpuAvg": 50,
+        "cpuMax": 65,
+        "rssMaxMb": 254
+      }
+    }
+  ]
+}

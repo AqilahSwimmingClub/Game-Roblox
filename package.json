@@ -1,0 +1,30 @@
+{
+  "name": "eduverse",
+  "private": true,
+  "version": "0.1.0",
+  "description": "EDUVERSE — The Learning Adventure: game edukasi 3D multiplayer berbasis web untuk siswa SD",
+  "type": "module",
+  "workspaces": [
+    "packages/shared",
+    "apps/server",
+    "apps/game",
+    "apps/dashboard"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build -w @eduverse/shared && npm run build -w @eduverse/game && npm run build -w @eduverse/dashboard && npm run build -w @eduverse/server",
+    "typecheck": "npm run build -w @eduverse/shared && npm run typecheck --workspaces --if-present",
+    "test": "npm run build -w @eduverse/shared && npm run test --workspaces --if-present",
+    "dev": "npm run build -w @eduverse/shared && npm run dev -w @eduverse/server",
+    "db:migrate": "npm run db:migrate -w @eduverse/server",
+    "db:seed": "npm run db:seed -w @eduverse/server",
+    "start": "npm run start -w @eduverse/server",
+    "e2e": "node tests/e2e/two-players.mjs",
+    "loadtest": "node tests/load/bots.mjs",
+    "build:web": "npm run build -w @eduverse/shared && npm run build -w @eduverse/game && npm run build -w @eduverse/dashboard -- --outDir ../game/dist/guru --emptyOutDir && node scripts/write-web-config.mjs",
+    "e2e:demo": "node tests/e2e/demo.mjs",
+    "test:security": "node tests/security/abuse.mjs"
+  }
+}

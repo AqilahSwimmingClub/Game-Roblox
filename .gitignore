@@ -24,3 +24,6 @@ uploads/
 .DS_Store
 .vscode/
 .idea/
+e2e-shots/
+loadtest-ci.json
+server.log
