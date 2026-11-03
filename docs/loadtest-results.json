@@ -1,7 +1,7 @@
 {
   "base": "http://localhost:3000",
   "durationSec": 60,
-  "at": "2026-11-03T16:02:28.151Z",
+  "at": "2026-11-03T16:12:55.739Z",
   "results": [
     {
       "players": 50,
@@ -9,39 +9,39 @@
       "playing": 50,
       "failedJoins": 0,
       "errorsSample": [],
-      "joinAllMs": 1288,
+      "joinAllMs": 1350,
       "connectMs": {
-        "p50": 42,
-        "p95": 66
+        "p50": 36,
+        "p95": 39
       },
       "joinAckMs": {
-        "p50": 5,
-        "p95": 28,
-        "p99": 55
+        "p50": 55,
+        "p95": 67,
+        "p99": 70
       },
       "interactAckMs": {
-        "n": 233,
+        "n": 237,
         "p50": 1,
-        "p95": 5,
-        "p99": 6
+        "p95": 4,
+        "p99": 10
       },
       "answerAckMs": {
-        "n": 406,
-        "p50": 2,
-        "p95": 5,
+        "n": 417,
+        "p50": 3,
+        "p95": 6,
         "p99": 8
       },
       "httpHealthMs": {
         "p50": 2,
         "p95": 4,
-        "max": 7
+        "max": 5
       },
       "snapshotsPerBotPerSec": {
         "avg": 10,
         "min": 10
       },
-      "answers": 406,
-      "correct": 60,
+      "answers": 417,
+      "correct": 57,
       "answerErrors": 0,
       "answerErrorTexts": [],
       "interactRejected": 0,
@@ -50,7 +50,7 @@
       "server": {
         "cpuAvg": 6,
         "cpuMax": 13,
-        "rssMaxMb": 240
+        "rssMaxMb": 155
       }
     },
     {
@@ -59,48 +59,48 @@
       "playing": 100,
       "failedJoins": 0,
       "errorsSample": [],
-      "joinAllMs": 2502,
+      "joinAllMs": 2390,
       "connectMs": {
-        "p50": 15,
+        "p50": 21,
         "p95": 40
       },
       "joinAckMs": {
-        "p50": 7,
-        "p95": 60,
-        "p99": 99
+        "p50": 6,
+        "p95": 50,
+        "p99": 59
       },
       "interactAckMs": {
-        "n": 476,
-        "p50": 4,
-        "p95": 8,
-        "p99": 11
+        "n": 511,
+        "p50": 2,
+        "p95": 7,
+        "p99": 8
       },
       "answerAckMs": {
-        "n": 824,
-        "p50": 2,
-        "p95": 6,
-        "p99": 10
+        "n": 877,
+        "p50": 3,
+        "p95": 5,
+        "p99": 9
       },
       "httpHealthMs": {
         "p50": 2,
-        "p95": 8,
-        "max": 8
+        "p95": 4,
+        "max": 6
       },
       "snapshotsPerBotPerSec": {
         "avg": 10,
         "min": 10
       },
-      "answers": 824,
-      "correct": 128,
+      "answers": 877,
+      "correct": 145,
       "answerErrors": 0,
       "answerErrorTexts": [],
       "interactRejected": 0,
       "positionCorrections": 0,
       "unexpectedDisconnects": 0,
       "server": {
-        "cpuAvg": 9,
-        "cpuMax": 16,
-        "rssMaxMb": 240
+        "cpuAvg": 10,
+        "cpuMax": 18,
+        "rssMaxMb": 167
       }
     },
     {
@@ -109,48 +109,48 @@
       "playing": 200,
       "failedJoins": 0,
       "errorsSample": [],
-      "joinAllMs": 4796,
+      "joinAllMs": 4730,
       "connectMs": {
-        "p50": 13,
-        "p95": 52
+        "p50": 17,
+        "p95": 41
       },
       "joinAckMs": {
-        "p50": 6,
-        "p95": 26,
-        "p99": 29
+        "p50": 3,
+        "p95": 24,
+        "p99": 48
       },
       "interactAckMs": {
-        "n": 938,
-        "p50": 10,
-        "p95": 17,
-        "p99": 21
+        "n": 983,
+        "p50": 2,
+        "p95": 5,
+        "p99": 8
       },
       "answerAckMs": {
-        "n": 1656,
+        "n": 1679,
         "p50": 2,
         "p95": 11,
-        "p99": 19
+        "p99": 17
       },
       "httpHealthMs": {
         "p50": 2,
-        "p95": 3,
-        "max": 15
+        "p95": 10,
+        "max": 16
       },
       "snapshotsPerBotPerSec": {
         "avg": 10,
         "min": 10
       },
-      "answers": 1656,
-      "correct": 220,
+      "answers": 1679,
+      "correct": 287,
       "answerErrors": 0,
       "answerErrorTexts": [],
       "interactRejected": 0,
       "positionCorrections": 0,
       "unexpectedDisconnects": 0,
       "server": {
-        "cpuAvg": 18,
-        "cpuMax": 29,
-        "rssMaxMb": 240
+        "cpuAvg": 20,
+        "cpuMax": 27,
+        "rssMaxMb": 176
       }
     },
     {
@@ -159,39 +159,39 @@
       "playing": 500,
       "failedJoins": 0,
       "errorsSample": [],
-      "joinAllMs": 11685,
+      "joinAllMs": 11856,
       "connectMs": {
-        "p50": 8,
-        "p95": 26
+        "p50": 17,
+        "p95": 54
       },
       "joinAckMs": {
         "p50": 3,
-        "p95": 41,
-        "p99": 65
+        "p95": 22,
+        "p99": 61
       },
       "interactAckMs": {
-        "n": 2381,
+        "n": 2327,
         "p50": 7,
-        "p95": 35,
-        "p99": 45
+        "p95": 21,
+        "p99": 31
       },
       "answerAckMs": {
-        "n": 4091,
-        "p50": 2,
-        "p95": 33,
-        "p99": 51
+        "n": 4006,
+        "p50": 3,
+        "p95": 36,
+        "p99": 54
       },
       "httpHealthMs": {
         "p50": 2,
-        "p95": 27,
-        "max": 41
+        "p95": 25,
+        "max": 45
       },
       "snapshotsPerBotPerSec": {
         "avg": 10,
         "min": 10
       },
-      "answers": 4091,
-      "correct": 671,
+      "answers": 4006,
+      "correct": 648,
       "answerErrors": 0,
       "answerErrorTexts": [],
       "interactRejected": 0,
@@ -199,8 +199,8 @@
       "unexpectedDisconnects": 0,
       "server": {
         "cpuAvg": 50,
-        "cpuMax": 64,
-        "rssMaxMb": 240
+        "cpuMax": 65,
+        "rssMaxMb": 254
       }
     }
   ]

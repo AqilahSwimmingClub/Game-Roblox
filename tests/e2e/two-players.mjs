@@ -171,6 +171,13 @@ try {
     await shot(teacher, 'g5-hasil');
   });
 
+  await step('Guru menampilkan Podium 3D → kedua siswa pindah ke panggung podium', async () => {
+    await teacher.getByRole('button', { name: /Tampilkan Podium/ }).click();
+    await Promise.all([a, b].map((s) => s.page.waitForFunction(() => window.__edu?.scene === 'podium', null, { timeout: 20000 })));
+    await a.page.waitForTimeout(5000);
+    await shot(a.page, 's5-podium');
+  });
+
   const errs = [...a.errors, ...b.errors];
   if (errs.length) console.log('  ! galat JS di klien siswa:', errs.slice(0, 5));
   console.log(`\nLULUS ${results.filter((r) => r.ok).length}/${results.length} langkah`);
