@@ -372,7 +372,8 @@ async function changeAvatar() {
   hud.setMode('none');
   try {
     avatarCfg = await pilihAvatar(avatarCfg, label(), async (cfg) => {
-      await net.setAvatar(cfg);
+      const result = await net.setAvatar(cfg);
+      if (!result.ok) throw new Error('error' in result ? result.error : 'Gagal menyimpan karakter. Coba lagi.');
     });
     player?.setAvatar(avatarCfg);
   } finally {
@@ -821,7 +822,10 @@ async function boot() {
   hud.setProfile(me.nama, me.absen);
   lastScore = { poin: me.poin ?? 0, rank: null, total: 0, dijawab: me.dijawab ?? 0 };
   hud.setScore(lastScore.poin, null, 0);
-  if (isNew) avatarCfg = await pilihAvatar(avatarCfg, label(), async (cfg) => void (await net.setAvatar(cfg)));
+  if (isNew) avatarCfg = await pilihAvatar(avatarCfg, label(), async (cfg) => {
+    const result = await net.setAvatar(cfg);
+    if (!result.ok) throw new Error('error' in result ? result.error : 'Gagal menyimpan karakter. Coba lagi.');
+  });
   ui.clearScreens();
 
   // Kembali ke dunia terakhir bila permainan sedang berjalan, jika tidak ke lobi
