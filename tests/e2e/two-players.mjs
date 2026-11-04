@@ -289,7 +289,7 @@ try {
     console.log(`    setelah sambung ulang: mode ${e.mobility.mode}, ${id} diparkir (tanpa pengemudi), posisi (${e.pos.x.toFixed(0)}, ${e.pos.z.toFixed(0)}), skor ${e.score}, tas ${JSON.stringify(e.mobility.tas)} utuh`);
   });
 
-  await step('Siswa A memberi barang ke siswa B (UI tas + server): hanya bila dekat, tas keduanya berubah, B diberi tahu', async () => {
+  await step('Siswa A mengirim hadiah ke siswa B (UI tas + server) → B melihat pop-up & menekan TERIMA → barang pindah; ditolak bila jauh/diri sendiri/habis', async () => {
     const idB = (await edu(b.page)).myId;
     const tasA0 = (await edu(a.page)).mobility.tas;
     // B masih jauh (di Kota), A di Bandara → ditolak server
@@ -308,12 +308,20 @@ try {
     await a.page.keyboard.press('KeyB');
     await a.page.getByRole('button', { name: 'Beri Air Mineral', exact: true }).click();
     await a.page.getByRole('button', { name: '🎁 Sinta', exact: true }).click();
-    await a.page.getByText(/sudah diberikan ke Sinta/).waitFor({ timeout: 8000 });
+    await a.page.getByRole('button', { name: 'KIRIM HADIAH', exact: true }).click();
+    await a.page.getByText(/untuk Sinta terkirim/).waitFor({ timeout: 8000 });
     await shot(a.page, 's3e-beri-barang');
     await a.page.getByRole('button', { name: 'Tutup', exact: true }).click();
-    await b.page.waitForFunction(() => window.__edu.giftsReceived >= 1 && window.__edu.mobility.tas['air-mineral'] === 1, null, { timeout: 8000 });
-    // Notifikasi tampil bergiliran (3,2 dtk per banner, hingga 4 antre + 1 tampil ≈ 16 dtk) — di CI yang lambat
-    // pesan hadiah bisa menunggu di belakang pesan lain, jadi beri waktu sepanjang antrean itu.
+    // B melihat pop-up permintaan (nama pemberi, barang, jumlah) dengan TERIMA hijau & TOLAK merah
+    const popup = b.page.locator('.offer-popup');
+    await popup.getByText('Raka ingin memberikan 1 Air Mineral kepadamu').waitFor({ timeout: 10000 });
+    await shot(b.page, 's3f0-popup-terima-tolak');
+    // barang belum pindah sebelum B menjawab (ditahan server)
+    if ((await edu(b.page)).mobility.tas['air-mineral']) throw new Error('barang pindah sebelum TERIMA');
+    await popup.getByRole('button', { name: 'Terima', exact: true }).click();
+    const diag = async () => JSON.stringify({ a: (await edu(a.page)).offers, b: (await edu(b.page)).offers, bTas: (await edu(b.page)).mobility.tas, bGifts: (await edu(b.page)).giftsReceived, popupText: (await popup.count()) ? (await popup.innerText()).slice(0, 200) : null });
+    if (!(await b.page.waitForFunction(() => window.__edu.giftsReceived >= 1 && window.__edu.mobility.tas['air-mineral'] === 1, null, { timeout: 8000 }).then(() => true, () => false))) throw new Error(`B setelah TERIMA: ${await diag()}`);
+    if (!(await a.page.waitForFunction(() => window.__edu.offers.accepted >= 1, null, { timeout: 8000 }).then(() => true, () => false))) throw new Error(`A setelah TERIMA: ${await diag()}`);
     // Banner pemberitahuan hanya 3,2 dtk; yang dicek adalah tanda yang bertahan: lencana 🎁 di tombol Tas
     // dan daftar "Hadiah terbaru" di dalam tas.
     await b.page.locator('.mv-wallet.ada-hadiah', { hasText: '🎁1' }).waitFor({ timeout: 10000 });

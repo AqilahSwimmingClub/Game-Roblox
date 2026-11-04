@@ -84,6 +84,7 @@ jobs:
           PUBLIC_URL: http://localhost:4173
           CORS_ORIGINS: http://localhost:4173
           EXTRA_CONNECT_SRC: http://localhost:3000 ws://localhost:3000
+          OFFER_TTL_MS: '20000' # permintaan hadiah kedaluwarsa lebih cepat (bawaan 60 dtk) agar uji kedaluwarsa singkat
         run: |
           (cd apps/server && nohup node dist/index.js > ../../server.log 2>&1 &)
           nohup node tests/web-static-server.mjs 4173 > web.log 2>&1 &
@@ -100,6 +101,10 @@ jobs:
         env:
           SHOTS: e2e-shots
           OUT: living-city-ci.json
+      - name: Hadiah & tukar barang (TERIMA/TOLAK, kedaluwarsa, ganda, putus, kontrol guru)
+        run: node tests/integration/offers.mjs
+        env:
+          OFFER_TTL_MS: '20000'
       - run: node tests/security/abuse.mjs
       - run: node tests/load/bots.mjs --players 50,100 --duration 20
         env:
