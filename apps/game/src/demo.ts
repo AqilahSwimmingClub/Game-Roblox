@@ -4,10 +4,11 @@
  * tidak ada pemain lain, dan hasil ini bukan asesmen resmi.
  */
 import './ui/styles.css';
-import { buildKota, DEFAULT_AVATAR, riftExit, VEHICLE_SPEC, type ActivePoint, type VehicleKind, type VehicleStateMsg } from '@eduverse/shared';
+import { buildKota, DEFAULT_AVATAR, riftExit, VEHICLE_SPEC, SHOP, CATALOG, checkBuy, isConsumable, type ActivePoint, type VehicleKind, type VehicleStateMsg } from '@eduverse/shared';
 import { Mobility, type MobilityHost, type MobilityPrompt } from './world/living/mobility.js';
 import { localMission, localMissionDialog } from './world/living/missions.js';
 import { notify } from './ui/dom.js';
+import { WalletStore } from './world/living/inventory.js';
 import { showMap } from './ui/play.js';
 import { Engine } from './engine/engine.js';
 import { Input } from './engine/input.js';
@@ -148,6 +149,7 @@ function questionAt(id: string) {
       if (right) {
         score += 100;
         scoreEl.textContent = String(score);
+        wallet.set({ saldo: wallet.saldo + SHOP.hadiahBenar, tas: wallet.tas });
       }
       feedback.textContent = right ? 'BENAR! +100 poin demo' : 'Belum tepat. Jawaban benar ditandai hijau.';
       stage.points?.markDone(id);
@@ -163,7 +165,30 @@ const demoVehicles = new Map<string, VehicleStateMsg>(layout.living.vehicles.map
 let demoDriving: string | null = null;
 let demoJetpack = false;
 const missionsDone = new Set<string>();
+// Dompet & tas Mode Demo: hanya di memori halaman ini (tidak menyentuh data kelas resmi), aturan sama dengan server.
+const wallet = new WalletStore();
+wallet.set({ saldo: SHOP.saldoAwal, tas: {} });
 const demoHost: MobilityHost = {
+  wallet,
+  async buy(vendorId, itemId, qty) {
+    const v = layout.living.vendors.find((x) => x.id === vendorId);
+    if (!v) return { ok: false, error: 'Pedagang tidak ditemukan.' };
+    if (Math.hypot(player.body.x - v.x, player.body.z - v.z) > SHOP.jarakBeli) return { ok: false, error: 'Mendekatlah ke pedagang untuk membeli.' };
+    const chk = checkBuy(wallet.saldo, wallet.tas, v.items, itemId, qty);
+    if (!chk.ok) return chk;
+    const tas = { ...wallet.tas, [itemId]: (wallet.tas[itemId] ?? 0) + qty };
+    wallet.set({ saldo: chk.sisa, tas });
+    return { ok: true, total: chk.total, sisa: chk.sisa, saldo: wallet.saldo, tas: wallet.tas };
+  },
+  async useItem(itemId) {
+    const it = CATALOG[itemId];
+    if (!it || !(wallet.tas[itemId]! > 0)) return { ok: false, error: 'Barang ini tidak ada di tasmu.' };
+    if (!isConsumable(it.kategori)) return { ok: false, error: `${it.nama} disimpan sebagai koleksi.` };
+    const tas = { ...wallet.tas, [itemId]: wallet.tas[itemId]! - 1 };
+    if (!tas[itemId]) delete tas[itemId];
+    wallet.set({ saldo: wallet.saldo, tas });
+    return { ok: true, itemId, saldo: wallet.saldo, tas: wallet.tas };
+  },
   async enterVehicle(id) {
     const v = demoVehicles.get(id);
     if (!v || v.driver) return { ok: false, error: 'Kendaraan tidak tersedia.' };
@@ -208,6 +233,7 @@ const demoHost: MobilityHost = {
         if (ok) {
           score += 100;
           scoreEl.textContent = String(score);
+          wallet.set({ saldo: wallet.saldo + SHOP.hadiahBenar, tas: wallet.tas });
           missionsDone.add(v.id);
           stage.living?.vendors.done.add(v.id);
         }
@@ -289,6 +315,8 @@ engine.onFrame((dt, t) => {
     traffic: stage.living?.traffic.snapshot() ?? null,
     fps: engine.fps,
     missionsDone: [...missionsDone],
+    saldo: wallet.saldo,
+    tas: { ...wallet.tas },
   }),
   /** Uji otomatis: pindahkan pemain (Mode Demo saja — tidak ada server, tidak ada nilai resmi). */
   teleport: (x: number, y: number, z: number, ry = 0) => {
@@ -297,6 +325,7 @@ engine.onFrame((dt, t) => {
     cam.snap();
   },
   action: () => action(),
+  openBag: () => mobility.openBag(),
   control: (c: Record<string, boolean>) => mobility.setControl(c),
   setMove: (x: number, y: number, jump = false, dive = false) => {
     input.moveX = x;

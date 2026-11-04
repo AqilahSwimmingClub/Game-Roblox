@@ -7,6 +7,7 @@ import type { MissionKind, Vendor } from '@eduverse/shared';
 import { h, btn, ui } from '../../ui/dom.js';
 import { sfx } from '../audio.js';
 import { sfxLiving } from '../audio.js';
+import { shopPanel, type WalletStore, type BuyResult } from './inventory.js';
 
 export interface LocalMission {
   judul: string;
@@ -143,13 +144,19 @@ export interface VendorActions {
   startMission: (v: Vendor) => void;
   missionDone: (id: string) => boolean;
   onClose: () => void;
+  /** Toko: dompet pemain + beli (server/Mode Demo). */
+  wallet: WalletStore;
+  buy: (vendorId: string, itemId: string, qty: number) => Promise<BuyResult>;
 }
 
 let open: HTMLElement | null = null;
+let cleanup: (() => void) | null = null;
 export function dialogOpen() {
   return !!open;
 }
 export function closeDialog() {
+  cleanup?.();
+  cleanup = null;
   open?.remove();
   open = null;
   document.body.classList.remove('mv-dialog');
@@ -181,11 +188,10 @@ export function vendorDialog(v: Vendor, act: VendorActions) {
     }),
     v.items.length
       ? btn('LIHAT BARANG', 'kuning kecil', () => {
-          body.replaceChildren(
-            h('div', { style: 'font-weight:900' }, 'Daftar barang & harga'),
-            h('div', { class: 'col', style: 'gap:4px' }, ...v.items.map((i) => h('div', { class: 'row', style: 'justify-content:space-between;font-weight:800;background:#fff;border-radius:12px;padding:6px 12px' }, h('span', null, i.nama), h('span', null, rp(i.harga))))),
-            h('div', { class: 'muted', style: 'font-weight:700;font-size:13px' }, 'Beli barang virtual belum tersedia (fitur inventaris/tas belum ada). Gunakan harga ini untuk berlatih berhitung!'),
-          );
+          cleanup?.();
+          const shop = shopPanel(v.items, act.wallet, (itemId, qty) => act.buy(v.id, itemId, qty));
+          cleanup = shop.dispose;
+          body.replaceChildren(shop.el);
           sfxLiving.coin();
         })
       : null,

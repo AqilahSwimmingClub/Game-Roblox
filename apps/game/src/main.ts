@@ -5,7 +5,7 @@
  */
 import './ui/styles.css';
 import * as THREE from 'three';
-import { EV, LIMITS, WORLDS, buildKota, buildLobby, DEFAULT_AVATAR, type VehicleStateMsg, type Vendor, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
+import { EV, LIMITS, WORLDS, buildKota, buildLobby, DEFAULT_AVATAR, type WalletMsg, type VehicleStateMsg, type Vendor, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
 import { Engine } from './engine/engine.js';
 import { Input } from './engine/input.js';
 import { FollowCamera } from './engine/camera.js';
@@ -20,6 +20,7 @@ import { pilihAvatar } from './ui/avatarScreen.js';
 import { Hud, WaitingRoom } from './ui/hud.js';
 import { showQuestion, showFinal, podiumBanner, countdown, showMap, blocker } from './ui/play.js';
 import { Mobility, type MobilityHost, type MobilityPrompt } from './world/living/mobility.js';
+import { WalletStore } from './world/living/inventory.js';
 
 // ───────────────────────── inisialisasi ─────────────────────────
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
@@ -135,6 +136,7 @@ async function goScene(scene: SceneId): Promise<boolean> {
     }
     if (r.vehicles && stage!.living) stage!.living.parked.setStates(r.vehicles);
     if (mobility) mobility.hasJetpack = !!r.jetpack;
+    wallet.set(r.dompet);
     player.frozen = false;
     player.teleport(r.spawn.x, r.spawn.y, r.spawn.z, 0);
     stage!.view?.update(r.spawn.x, r.spawn.z, engine.clock.t, true);
@@ -194,8 +196,20 @@ function isMobilityPrompt(p: Prompt | MobilityPrompt): p is MobilityPrompt {
   return p.kind === 'kendaraan' || p.kind === 'turun' || p.kind === 'jetpack' || p.kind === 'pedagang';
 }
 
-/** Mode kelas: semua perubahan kendaraan/jetpack/portal divalidasi server. */
+const wallet = new WalletStore();
+/** Mode kelas: semua perubahan kendaraan/jetpack/portal/jual beli divalidasi server. */
 const mobilityHost: MobilityHost = {
+  wallet,
+  buy: async (vendorId, itemId, qty) => {
+    const r = await net.buy(vendorId, itemId, qty);
+    if (r.ok) wallet.set(r);
+    return r;
+  },
+  useItem: async (itemId) => {
+    const r = await net.useItem(itemId);
+    if (r.ok) wallet.set(r);
+    return r;
+  },
   enterVehicle: (id) => net.enterVehicle(id),
   exitVehicle: (p) => net.exitVehicle(p),
   setJetpack: (on, st) => net.setJetpack(on, st),
@@ -313,6 +327,7 @@ net.on<{ poin: number; benar: number; dijawab: number; rank: number | null; tota
 net.on<LeaderboardRow[]>(EV.leaderboard, (rows) => hud.setLeaderboard(rows));
 net.on<{ text: string; kind?: string }>(EV.notify, (m) => notify(m.text, m.kind ?? 'info'));
 net.on<VehicleStateMsg[]>(EV.vehicles, (list) => stage?.living?.parked.setStates(list));
+net.on<WalletMsg>(EV.wallet, (w) => wallet.set(w));
 net.on<{ x: number; y: number; z: number; reason: string; mode?: string }>(EV.teleport, (m) => {
   riding = false;
   if (mobility?.driving && m.mode !== 'jalan' && m.reason === 'koreksi') {
@@ -413,6 +428,7 @@ net.onReconnect(async () => {
       if (res.points) stage.setPoints(res.points, res.done);
       if (res.vehicles) stage.living?.parked.setStates(res.vehicles);
       if (mobility) mobility.hasJetpack = !!res.jetpack;
+      wallet.set(res.dompet);
     }
   }
 });
@@ -524,7 +540,7 @@ if (debug) {
     action: () => void doAction(),
     control: (c: Record<string, boolean>) => mobility?.setControl(c),
     /** Uji keamanan (mode ?debug=1): kirim permintaan mentah — server tetap memvalidasi semuanya. */
-    raw: { enterVehicle: (id: string) => net.enterVehicle(id), useRift: (id: string) => net.useRift(id), setJetpack: (on: boolean, st?: string) => net.setJetpack(on, st) },
+    raw: { enterVehicle: (id: string) => net.enterVehicle(id), useRift: (id: string) => net.useRift(id), setJetpack: (on: boolean, st?: string) => net.setJetpack(on, st), buy: (v: string, i: string, q: number) => mobilityHost.buy(v, i, q), useItem: (i: string) => mobilityHost.useItem(i) },
     vendors: () => stage?.living?.layout.vendors.map((v) => ({ id: v.id, x: v.x, z: v.z })) ?? [],
   };
 }
@@ -609,6 +625,7 @@ async function boot() {
     w.close();
   }
   avatarCfg = me.avatar ?? avatarCfg;
+  wallet.set(me.dompet);
   hud.setProfile(me.nama, me.absen);
   lastScore = { poin: me.poin ?? 0, rank: null, total: 0, dijawab: me.dijawab ?? 0 };
   hud.setScore(lastScore.poin, null, 0);

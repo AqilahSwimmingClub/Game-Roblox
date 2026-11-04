@@ -291,3 +291,6 @@ body.mv-drive .hud .br, body.mv-jet .hud .br, body.mv-drive .demo-bottom, body.m
 .rift-fx.show-name .rift-name { opacity: 1; transform: scale(1); }
 body.mv-dialog .demo-bottom, body.mv-dialog .mv-ui, body.mv-dialog .hud .br, body.mv-dialog .demo-hint, body.mv-dialog .demo-map, body.mv-dialog .demo-back, body.mv-dialog .demo-head { display: none !important; }
 @media (orientation: portrait) { .mv-tele { top: calc(118px + var(--safe-t, 0px)); } }
+.mv-wallet { position: absolute; left: calc(12px + var(--safe-l, 0px)); top: 46%; min-height: 46px; font-size: 16px; padding: 6px 12px; }
+body.touch .mv-wallet { top: 40%; }
+@media (orientation: portrait) { .mv-wallet { top: 30%; } }

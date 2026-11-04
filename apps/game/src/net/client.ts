@@ -6,7 +6,7 @@
  */
 import { io, type Socket } from 'socket.io-client';
 import { SERVER_URL, SERVER_LABEL } from './server.js';
-import { EV, type VehicleStateMsg, type AnswerPayload, type AvatarConfig, type SceneId, type SessionPublicState, type RosterEntry, type PublicQuestion, type AnswerResultMsg, type ActivePoint } from '@eduverse/shared';
+import { EV, type WalletMsg, type VehicleStateMsg, type AnswerPayload, type AvatarConfig, type SceneId, type SessionPublicState, type RosterEntry, type PublicQuestion, type AnswerResultMsg, type ActivePoint } from '@eduverse/shared';
 
 export interface Me {
   absen: number;
@@ -17,6 +17,7 @@ export interface Me {
   benar?: number;
   dijawab?: number;
   lastScene?: SceneId | null;
+  dompet?: WalletMsg;
 }
 
 export interface JoinOk {
@@ -146,7 +147,7 @@ export class NetClient {
   }
 
   enter(scene: SceneId) {
-    return this.call<{ ok: true; spawn: { x: number; y: number; z: number }; points?: ActivePoint[]; done?: string[]; vehicles?: VehicleStateMsg[]; jetpack?: boolean }>(EV.enterWorld, { scene });
+    return this.call<{ ok: true; spawn: { x: number; y: number; z: number }; points?: ActivePoint[]; done?: string[]; vehicles?: VehicleStateMsg[]; jetpack?: boolean; dompet?: WalletMsg }>(EV.enterWorld, { scene });
   }
 
   enterVehicle(id: string) {
@@ -159,6 +160,14 @@ export class NetClient {
 
   setJetpack(on: boolean, stationId?: string) {
     return this.call<{ ok: true; on: boolean }>(EV.jetpack, { on, stationId });
+  }
+
+  buy(vendorId: string, itemId: string, qty: number) {
+    return this.call<{ ok: true; total: number; sisa: number } & WalletMsg>(EV.buy, { vendorId, itemId, qty });
+  }
+
+  useItem(itemId: string) {
+    return this.call<{ ok: true; itemId: string } & WalletMsg>(EV.useItem, { itemId });
   }
 
   useRift(riftId: string) {

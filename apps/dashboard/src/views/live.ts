@@ -20,6 +20,8 @@ interface LiveStudent {
   zone: string | null;
   zoneName: string | null;
   mode?: string | null;
+  saldo?: number;
+  barang?: number;
   x: number | null;
   z: number | null;
   poin: number;
@@ -179,6 +181,7 @@ export async function liveView(id: string): Promise<HTMLElement> {
               ),
               h('td', null, s.online ? `${SCENE[s.scene ?? ''] ?? '—'}${s.zoneName ? ' · ' + s.zoneName : ''}${s.mode && s.mode !== 'Berjalan' ? ' · ' + s.mode : ''}` : '—'),
               h('td', { style: 'font-family:Fredoka;font-size:18px' }, String(s.poin)),
+              h('td', { title: 'Uang virtual untuk jual beli di Kota Hidup (tidak memengaruhi poin)' }, s.saldo === undefined ? '—' : `Rp${s.saldo.toLocaleString('id-ID')} · ${s.barang ?? 0} barang`),
               h('td', null, charBadge(s.avatar)),
               h('td', null, `${s.benar} benar / ${s.dijawab - s.benar} salah`),
               h('td', null, live.state.progressTarget ? `${s.dijawab}/${live.state.progressTarget}` : String(s.dijawab)),
@@ -411,7 +414,7 @@ export async function liveView(id: string): Promise<HTMLElement> {
       h('div', { class: 'card col' }, h('h2', null, 'Papan Skor Langsung'), lbEl),
       h('div', { class: 'card col' }, h('h2', null, 'Sebaran Siswa — Dunia Kota'), h('div', { class: 'row', style: 'align-items:flex-start;flex-wrap:nowrap' }, h('div', { style: 'flex:1.3;min-width:0' }, heat), h('div', { style: 'flex:1;min-width:0;font-size:14px' }, zoneList))),
     ),
-    h('div', { class: 'card col' }, h('h2', null, 'Siswa'), h('div', { class: 'tablewrap' }, h('table', null, h('thead', null, h('tr', null, ...['Absen', 'Nama', 'Status', 'Lokasi', 'Poin', 'Karakter', 'Jawaban', 'Progres', 'Peringkat', 'Aksi'].map((t) => h('th', null, t)))), studentsBody))),
+    h('div', { class: 'card col' }, h('h2', null, 'Siswa'), h('div', { class: 'tablewrap' }, h('table', null, h('thead', null, h('tr', null, ...['Absen', 'Nama', 'Status', 'Lokasi', 'Poin', 'Uang · Tas', 'Karakter', 'Jawaban', 'Progres', 'Peringkat', 'Aksi'].map((t) => h('th', null, t)))), studentsBody))),
     h('div', { class: 'card col' }, h('h2', null, 'Umpan Jawaban Langsung'), feedEl),
   );
 }

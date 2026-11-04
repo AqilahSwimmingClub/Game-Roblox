@@ -19,6 +19,8 @@ import { newBody, stepGround, stepPlane, exitSpot, poseModel, vehicleActionLabel
 import { vendorDialog, worldGateDialog, riftTransition, dialogOpen } from './missions.js';
 import { engineSound, sfxLiving } from '../audio.js';
 import { h } from '../../ui/dom.js';
+import { formatRp } from '@eduverse/shared';
+import { openBag, type WalletStore, type BuyResult, type UseResult } from './inventory.js';
 
 type Fail = { ok: false; error: string };
 export interface MobilityHost {
@@ -32,6 +34,10 @@ export interface MobilityHost {
   notify(text: string, kind?: string): void;
   /** Dipanggil saat dialog dibuka/ditutup (agar input jalan berhenti). */
   setBusy(busy: boolean): void;
+  /** Dompet & tas (salinan dari server / Mode Demo) + aksi toko. */
+  wallet: WalletStore;
+  buy(vendorId: string, itemId: string, qty: number): Promise<BuyResult>;
+  useItem(itemId: string): Promise<UseResult>;
 }
 
 export interface MobilityPrompt {
@@ -106,9 +112,10 @@ export class Mobility {
   private recoverBtn: HTMLButtonElement;
   private actionBtn: HTMLButtonElement;
   private hintEl: HTMLElement;
+  private walletBtn: HTMLButtonElement;
   private currentPrompt: MobilityPrompt | null = null;
   /** Statistik untuk uji otomatis. */
-  stats = { maxAltitude: 0, maxSpeed: 0, rifts: 0, landedOnRoof: false, takeoffs: 0, landings: 0 };
+  stats = { maxAltitude: 0, maxSpeed: 0, rifts: 0, landedOnRoof: false, takeoffs: 0, landings: 0, itemsUsed: 0 };
 
   constructor(
     private scene: THREE.Scene,
@@ -139,13 +146,19 @@ export class Mobility {
     this.setJet = h('div', { class: 'mv-set' }, tapBtn('MATIKAN', 'merah', () => void this.toggleJetpack(false)), h('div', { class: 'mv-col' }, holdBtn('NAIK', 'biru', (v) => (this.ctl.up = v)), holdBtn('TURUN', 'ungu', (v) => (this.ctl.down = v))));
     this.jetToggle = tapBtn('JETPACK', 'oranye', () => void this.toggleJetpack(true));
     this.jetToggle.classList.add('mv-jet-toggle');
+    this.walletBtn = tapBtn('🎒 Tas', 'putih', () => this.openBag());
+    this.walletBtn.classList.add('mv-wallet');
+    const renderWallet = () => (this.walletBtn.textContent = `🎒 ${formatRp(this.host.wallet.saldo)}`);
+    renderWallet();
+    this.host.wallet.on(renderWallet);
     this.jetToggle.style.display = 'none';
-    this.el = h('div', { class: 'mv-ui' }, this.teleEl, this.hintEl, h('div', { class: 'mv-right' }, h('div', { class: 'mv-row' }, this.recoverBtn, this.actionBtn), this.setDrive, this.setPlane, this.setJet), this.jetToggle);
+    this.el = h('div', { class: 'mv-ui' }, this.teleEl, this.hintEl, h('div', { class: 'mv-right' }, h('div', { class: 'mv-row' }, this.recoverBtn, this.actionBtn), this.setDrive, this.setPlane, this.setJet), this.jetToggle, this.walletBtn);
     document.body.appendChild(this.el);
     window.addEventListener('keydown', (e) => {
       if (e.repeat || (e.target as HTMLElement | null)?.tagName === 'INPUT') return;
       if (e.code === 'KeyF' && this.living && !this.driving && this.input.enabled) void this.toggleJetpack(this.mode !== 'jetpack');
       if (e.code === 'KeyH' && this.driving && this.driving.kind !== 'sepeda') sfxLiving.horn();
+      if ((e.code === 'KeyB' || e.code === 'KeyI') && this.living && !this.driving && this.input.enabled) this.openBag();
     });
     this.refreshUi();
   }
@@ -192,6 +205,7 @@ export class Mobility {
     this.setPlane.style.display = veh === 'pesawat' ? '' : 'none';
     this.setJet.style.display = m === 'jetpack' ? '' : 'none';
     this.jetToggle.style.display = this.living && this.hasJetpack && m === 'jalan' ? '' : 'none';
+    this.walletBtn.style.display = this.living && !veh ? '' : 'none';
     this.teleEl.style.display = veh || m === 'jetpack' ? '' : 'none';
     this.hintEl.style.display = veh || m === 'jetpack' ? '' : 'none';
     this.hintEl.textContent =
@@ -199,7 +213,7 @@ export class Mobility {
         ? 'W/S gas · A/D belok · Spasi naik · C turun · E keluar (setelah mendarat)'
         : veh
           ? 'W gas · S rem/mundur · A/D belok · H klakson · E turun'
-          : 'WASD gerak · Spasi naik · C turun · F matikan jetpack';
+          : 'WASD gerak · Spasi naik · C turun · F matikan jetpack · B tas';
     if (!this.touch) for (const b of this.el.querySelectorAll<HTMLElement>('.mv-set')) b.classList.add('ringkas');
   }
 
@@ -236,7 +250,13 @@ export class Mobility {
       if (!v) return false;
       this.living?.vendors.greet(v.id);
       this.host.setBusy(true);
-      vendorDialog(v, { startMission: (vv) => this.host.startMission(vv), missionDone: (id) => this.host.missionDone(id), onClose: () => this.host.setBusy(false) });
+      vendorDialog(v, {
+        startMission: (vv) => this.host.startMission(vv),
+        missionDone: (id) => this.host.missionDone(id),
+        onClose: () => this.host.setBusy(false),
+        wallet: this.host.wallet,
+        buy: (vid, itemId, qty) => this.host.buy(vid, itemId, qty),
+      });
       return true;
     }
     return false;
@@ -322,6 +342,21 @@ export class Mobility {
     } finally {
       this.busy = false;
     }
+  }
+
+  /** Buka tas; makanan/minuman/buah yang dipakai mengisi penuh energi jetpack. */
+  openBag() {
+    if (this.busy || dialogOpen()) return;
+    this.host.setBusy(true);
+    openBag(
+      this.host.wallet,
+      (id) => this.host.useItem(id),
+      () => {
+        this.fuel = JETPACK.fuelMax;
+        this.stats.itemsUsed++;
+      },
+      () => this.host.setBusy(false),
+    );
   }
 
   private recover() {
@@ -533,6 +568,8 @@ export class Mobility {
       vehicle: d ? { id: d.id, kind: d.kind, x: +d.body.x.toFixed(1), y: +d.body.y.toFixed(2), z: +d.body.z.toFixed(1), speed: +d.body.speed.toFixed(2), grounded: d.body.grounded, throttle: +d.body.throttle.toFixed(2), heading: +d.body.heading.toFixed(2) } : null,
       hasJetpack: this.hasJetpack,
       fuel: Math.round(this.fuel),
+      saldo: this.host.wallet.saldo,
+      tas: { ...this.host.wallet.tas },
       prompt: this.currentPrompt?.kind ?? null,
       promptId: this.currentPrompt?.id ?? null,
       ...this.stats,
