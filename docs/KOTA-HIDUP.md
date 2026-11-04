@@ -20,6 +20,7 @@ bank soal Word/Excel, nilai, leaderboard, podium 3D, kamera third-person, multip
 | Bandara (timur) + Kawasan Gedung Tinggi & Pusat Teknologi (barat) + zona udara 2,36 × 2,36 km | ✅ | gerbang di pagar kota; menara 30–66 m dengan helipad |
 | Lubang Dimensi (10 portal, 5 pasang) + Taman Langit rahasia | ✅ diuji otomatis | pusaran biru-ungu, partikel, suara, transisi + nama tujuan, anti-teleport berulang |
 | Gerbang Antardunia (Hutan/Laut/Angkasa) | ✅ jujur | ditampilkan "segera hadir"; **tidak** memindahkan pemain ke dunia yang belum ada |
+| Peta mini & peta besar menandai lubang dimensi, stasiun jetpack, area parkir, pesawat, pedagang; Mode Demo punya tombol **Peta** | ✅ diuji otomatis | peta besar otomatis meluas saat pemain di Bandara/Gedung Tinggi |
 | Kontrol kontekstual HP/tablet | ✅ | jalan: joystick+lompat+lari+aksi · kendaraan: GAS/REM/TURUN + joystick belok · pesawat: GAS+/GAS−/NAIK/TURUN/KELUAR · jetpack: NAIK/TURUN/MATIKAN |
 | Multipemain: pemain lain terlihat berjalan, bersepeda, naik motor/mobil/bus, terbang jetpack, menerbangkan pesawat, keluar dari portal | ✅ diuji (2 browser) | lihat "Sinkronisasi" |
 | Dashboard Guru: kolom lokasi menampilkan mode (mis. "Mengemudi Mobil"), peta sebaran mencakup bandara & gedung tinggi | ✅ | |
@@ -77,6 +78,10 @@ apps/server/src/game/runtime.ts      validasi: naik/turun kendaraan (jarak, kunc
   (paket Free, region ap-south-1). Migrasi `003_rls_supabase.sql` mengaktifkan **RLS tanpa policy** + mencabut hak
   `anon`/`authenticated`: API publik Supabase tidak bisa membaca kunci jawaban, data siswa, atau hash kata sandi.
   Server Node terhubung langsung sebagai pemilik tabel.
+- **Terverifikasi** (4 Nov 2026) langsung di database Supabase: peran `anon` dan `authenticated` **ditolak** membaca ke-7 tabel,
+  peran server (pemilik tabel) tetap bisa membaca. Skrip ulang: `supabase/verify_rls.sql` (SQL Editor) atau
+  `tests/security/supabase-rls.mjs` (lewat REST, butuh `SUPABASE_URL` + kunci publik). Uji integrasi server juga lulus 6/6 dengan
+  pemilik tabel **non-superuser** + peran `anon`/`authenticated` yang punya hak bawaan (meniru izin Supabase) — migrasi 003 mencabutnya.
 - **Server game otoritatif tetap Node + Socket.IO** (Render atau VPS). Supabase **bukan** server game: penilaian soal,
   validasi kecepatan/teleport/kendaraan butuh proses yang memegang status permainan di memori.
 - **Supabase Realtime tidak dipakai untuk posisi**. Kuota paket Free (dokumentasi Supabase, Nov 2026): 100 pesan/detik,
@@ -102,7 +107,7 @@ apps/server/src/game/runtime.ts      validasi: naik/turun kendaraan (jarak, kunc
 | Typecheck semua paket | lulus |
 | Unit shared (termasuk 7 uji Kota Hidup: tidak tertanam di bangunan, portal berpasangan, misi selalu aktif, batas server ≥ kecepatan klien, lampu tidak hijau bersamaan) | 23/23 |
 | Integrasi server (PostgreSQL 16, dengan migrasi RLS) | 6/6 |
-| `tests/e2e/living-city.mjs` (Mode Demo, Pixel 7 landscape): berjalan, NPC bergerak & berhenti di lampu merah, pedagang + misi, mobil/motor/sepeda naik-kemudi-turun, tidak menembus bangunan, jetpack naik → mendarat di atap 42 m → turun ke jalan, pesawat lepas landas (90 km/j) → terbang 50 m → mendarat → keluar, portal Alun-alun → Bandara, tidak teleport berulang, tanpa galat, tanpa menghubungi server | **14/14** |
+| `tests/e2e/living-city.mjs` (Mode Demo, Pixel 7 landscape): berjalan, NPC bergerak & berhenti di lampu merah, pedagang + misi, mobil/motor/sepeda naik-kemudi-turun, tidak menembus bangunan, jetpack naik → mendarat di atap 42 m → turun ke jalan, pesawat lepas landas (90 km/j) → terbang 50 m → mendarat → keluar, portal Alun-alun → Bandara, tidak teleport berulang, peta berpenanda, tanpa galat, tanpa menghubungi server | **15/15** |
 | `tests/e2e/two-players.mjs` (guru + 2 siswa, 3 browser, topologi Vercel↔backend): alur kelas lama + server menolak kendaraan/portal/jetpack dari jauh, **B melihat A mengendarai mobil**, kendaraan terparkir di posisi baru untuk semua, **B melihat jetpack A di udara**, portal ke Bandara diterima server (skor & karakter tetap), **putus internet 30 dtk saat mengemudi → tersambung lagi, kendaraan dilepas aman, skor utuh**, podium | **17/17** |
 | `tests/security/abuse.mjs` | 20/20 |
 | Uji beban singkat 50 bot | 0 gagal, 0 koreksi, 0 putus |

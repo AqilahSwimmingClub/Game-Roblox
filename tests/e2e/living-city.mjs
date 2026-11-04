@@ -264,6 +264,17 @@ try {
     Math.hypot(s3.position.x - ex.x, s3.position.z - ex.z) < 5 ? pass('Tidak ada teleport berulang tanpa sengaja') : fail('Teleport berulang', JSON.stringify(s3.position));
   }
 
+  // 11. Peta besar menampilkan penanda Kota Hidup (portal, jetpack, parkir, pesawat, pedagang)
+  {
+    await page.click('#demo-map');
+    await wait(400);
+    const txt = await page.locator('body').innerText();
+    const hasCanvas = (await page.locator('.screen canvas').count()) > 0;
+    await shot('peta');
+    await page.getByRole('button', { name: 'Tutup Peta', exact: true }).click();
+    hasCanvas && ['Lubang dimensi', 'Jetpack', 'Parkir', 'Pesawat', 'Pedagang'].every((w) => txt.includes(w)) ? pass('Peta menampilkan portal, jetpack, parkir, pesawat, pedagang') : fail('Peta', 'kanvas/keterangan tidak lengkap');
+  }
+
   const fps = (await st()).fps;
   pass('FPS terukur (GPU perangkat lunak SwiftShader — bukan angka HP)', `${fps.toFixed(1)} FPS`);
   if (errors.length) fail('Tanpa galat JS', errors.slice(0, 3).join(' | '));

@@ -35,6 +35,7 @@ terhubung langsung. Yang perlu Anda lakukan:
    Untuk verifikasi sertifikat penuh: unduh *SSL certificate* dari Supabase (Settings → Database), isi `PGSSL_CA` dengan isinya,
    lalu hapus `PGSSL_STRICT=0`.
 3. Server menjalankan migrasi otomatis; karena 001–003 sudah tercatat di `schema_migrations`, tidak ada yang diulang.
+4. (Opsional) Cek keamanan: jalankan `supabase/verify_rls.sql` di SQL Editor Supabase — semua tabel harus "DITOLAK" untuk `anon` & `authenticated`.
 
 Mengapa server game tidak dipindah ke Supabase Realtime/Edge Functions: lihat [KOTA-HIDUP.md → Supabase](KOTA-HIDUP.md#supabase--apa-yang-dipakai-dan-mengapa)
 (kuota Free 100 pesan/detik sudah 90% terpakai oleh 3 siswa pada 10 Hz; penilaian & validasi butuh proses otoritatif).
