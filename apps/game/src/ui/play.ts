@@ -2,6 +2,7 @@
 import { KOTA, KOTA_WORLD_HALF, KOTA_ZONES, type AnswerPayload, type AnswerResultMsg, type FinalResultMsg, type PodiumEntry, type PublicQuestion } from '@eduverse/shared';
 import { h, btn, ui } from './dom.js';
 import { sfx } from '../world/audio.js';
+import { drawLandmarks, LANDMARK_LEGEND } from '../world/living/landmarks.js';
 
 const LETTER = ['A', 'B', 'C', 'D', 'E'];
 
@@ -211,7 +212,9 @@ export function countdown(n: number) {
 
 /** Peta besar Dunia Kota dengan label zona, posisi pemain, dan titik soal. */
 export function showMap(px: number, pz: number, points: { x: number; z: number; done: boolean; surprise: boolean }[]) {
-  const S = Math.min(window.innerWidth, window.innerHeight) * 0.78;
+  const landscape = window.innerWidth > window.innerHeight;
+  // landscape: peta di kiri, keterangan di kanan → peta bisa hampir setinggi layar
+  const S = landscape ? Math.min(window.innerHeight - 36, window.innerWidth - 260) : Math.min(window.innerWidth - 32, window.innerHeight - 220);
   const cv = h('canvas', { width: 900, height: 900, style: `width:${S}px;height:${S}px;border-radius:20px;background:#9ed98f` }) as HTMLCanvasElement;
   const c = cv.getContext('2d')!;
   // Di luar pagar kota (Bandara / Kawasan Gedung Tinggi) peta diperbesar cakupannya.
@@ -241,6 +244,7 @@ export function showMap(px: number, pz: number, points: { x: number; z: number; 
     c.arc(t(p.x), t(p.z), 6, 0, Math.PI * 2);
     c.fill();
   }
+  drawLandmarks(c, t, t, HALF > KOTA.half ? 7 : 9, { labels: false });
   c.font = '800 20px Nunito, sans-serif';
   c.textAlign = 'center';
   c.fillStyle = '#1E2A4A';
@@ -252,7 +256,13 @@ export function showMap(px: number, pz: number, points: { x: number; z: number; 
   c.arc(t(px), t(pz), 11, 0, Math.PI * 2);
   c.fill();
   c.stroke();
-  const layer = h('div', { class: 'screen gelap', style: 'z-index:23;flex-direction:column;gap:12px' }, cv, h('div', { class: 'row' }, h('span', { class: 'chip' }, 'Kuning: soal'), h('span', { class: 'chip' }, 'Hijau: selesai'), h('span', { class: 'chip' }, 'Biru: kamu'), btn('Tutup Peta', 'putih', () => layer.remove())));
+  const close = () => {
+    layer.remove();
+    document.body.classList.remove('mv-dialog');
+  };
+  const legend = h('div', { class: 'row wrap', style: `justify-content:center;gap:6px;${landscape ? 'flex-direction:column;align-items:stretch;width:220px' : ''}` }, h('span', { class: 'chip' }, 'Bulat kuning: soal'), h('span', { class: 'chip' }, 'Hijau: selesai'), h('span', { class: 'chip' }, 'Biru: kamu'), ...LANDMARK_LEGEND.map(([col, nama]) => h('span', { class: 'chip' }, h('i', { style: `display:inline-block;width:12px;height:12px;border-radius:4px;background:${col}` }), nama)), btn('Tutup Peta', 'putih', close));
+  const layer = h('div', { class: 'screen gelap', style: `z-index:23;flex-direction:${landscape ? 'row' : 'column'};gap:12px` }, cv, legend);
+  document.body.classList.add('mv-dialog');
   ui.add(layer);
 }
 

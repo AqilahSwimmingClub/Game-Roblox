@@ -289,5 +289,5 @@ body.mv-drive .hud .br, body.mv-jet .hud .br, body.mv-drive .demo-bottom, body.m
 .rift-fx.in { opacity: 1; }
 .rift-fx .rift-name { font: 700 clamp(22px, 5vw, 44px) Fredoka, sans-serif; color: #fff; text-shadow: 0 4px 18px #1e1b4b; opacity: 0; transform: scale(0.8); transition: opacity 0.3s, transform 0.3s; }
 .rift-fx.show-name .rift-name { opacity: 1; transform: scale(1); }
-body.mv-dialog .demo-bottom, body.mv-dialog .mv-ui, body.mv-dialog .hud .br, body.mv-dialog .demo-hint { display: none !important; }
+body.mv-dialog .demo-bottom, body.mv-dialog .mv-ui, body.mv-dialog .hud .br, body.mv-dialog .demo-hint, body.mv-dialog .demo-map, body.mv-dialog .demo-back, body.mv-dialog .demo-head { display: none !important; }
 @media (orientation: portrait) { .mv-tele { top: calc(118px + var(--safe-t, 0px)); } }

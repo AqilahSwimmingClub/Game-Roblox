@@ -8,6 +8,7 @@ import { buildKota, DEFAULT_AVATAR, riftExit, VEHICLE_SPEC, type ActivePoint, ty
 import { Mobility, type MobilityHost, type MobilityPrompt } from './world/living/mobility.js';
 import { localMission, localMissionDialog } from './world/living/missions.js';
 import { notify } from './ui/dom.js';
+import { showMap } from './ui/play.js';
 import { Engine } from './engine/engine.js';
 import { Input } from './engine/input.js';
 import { FollowCamera } from './engine/camera.js';
@@ -45,6 +46,7 @@ style.textContent = `
 .demo-overlay button,.demo-overlay a {pointer-events:auto;touch-action:none}
 .demo-head {position:absolute;top:max(10px,env(safe-area-inset-top));left:max(10px,env(safe-area-inset-left));background:#f4f8ffed;border-radius:15px;padding:9px 14px;box-shadow:0 4px 14px #1e2a4a33;font-weight:900;max-width:63vw}
 .demo-head small {display:block;font-size:11px;color:#566079}
+.demo-map {position:absolute;top:58px;right:12px;background:#fff;border:2px solid #dbe7f5;border-radius:14px;padding:9px 16px;font:800 13px Nunito;color:#1e2a4a}
 .demo-back {position:absolute;top:10px;right:12px;background:#fff;border:2px solid #dbe7f5;border-radius:14px;padding:9px 12px;font:800 13px Nunito;color:#1e2a4a;text-decoration:none}
 .demo-bottom {position:absolute;bottom:max(10px,env(safe-area-inset-bottom));right:max(12px,env(safe-area-inset-right));display:flex;gap:10px;align-items:flex-end}
 .demo-action {background:#ffcf45;border:none;border-radius:17px;padding:16px;font:900 14px Nunito;color:#1e2a4a;min-width:98px;box-shadow:0 5px 0 #be9224}
@@ -66,6 +68,7 @@ overlay.className = 'demo-overlay';
 overlay.innerHTML = `
   <div class="demo-head">EDUVERSE · DEMO KOTA<small>Tanpa kode kelas · Poin uji: <span id="demo-score">0</span></small></div>
   <a class="demo-back" href="/">← Menu utama</a>
+  <button id="demo-map" class="demo-map" type="button">Peta</button>
   <div class="demo-hint">Kiri: jalan · Kanan: putar kamera · Coba mobil/motor di area P, jetpack oranye, portal ungu, pedagang (!)</div>
   <div class="demo-bottom">
     <button id="demo-run" class="demo-run" type="button">Lari</button>
@@ -245,6 +248,9 @@ function action() {
   }
 }
 actionBtn.onclick = action;
+document.getElementById('demo-map')!.addEventListener('click', () =>
+  showMap(player.body.x, player.body.z, (stage.points?.list() ?? []).map((e) => ({ x: e.p.x, z: e.p.z, done: e.done, surprise: e.p.surprise }))),
+);
 input.onAction(action);
 
 let prevPrompt = '';

@@ -7,6 +7,7 @@ import { WORLDS, KOTA, KOTA_ZONES, type LeaderboardRow, type SessionPublicState,
 import { h, btn, ui } from './dom.js';
 import type { QualitySetting } from '../engine/quality.js';
 import { setSound, soundOn } from '../world/audio.js';
+import { drawLandmarks } from '../world/living/landmarks.js';
 
 export interface HudCallbacks {
   action: () => void;
@@ -187,6 +188,7 @@ export class Hud {
     road(KOTA.sideX, 0, KOTA.sideRoad, KOTA.half * 2);
     c.fillStyle = '#ff8a3d';
     c.fillRect(tx(-5), tz(-5), 10 * k, 10 * k);
+    drawLandmarks(c, tx, tz, 7, { upright: camYaw, clip: W });
     for (const o of others) {
       c.fillStyle = '#3BA7FF';
       c.beginPath();
