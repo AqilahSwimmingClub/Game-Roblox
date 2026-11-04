@@ -5,7 +5,7 @@
  */
 import { io, type Socket } from 'socket.io-client';
 import QRCode from 'qrcode';
-import { EV, KOTA, KOTA_ZONES, WORLDS, CHARACTERS, type SessionPublicState, type AvatarConfig } from '@eduverse/shared';
+import { EV, KOTA_WORLD_HALF, KOTA_ZONES, WORLDS, CHARACTERS, type SessionPublicState, type AvatarConfig } from '@eduverse/shared';
 import { h, api, btn, toast, onLeave, fmtDate, modal, download, getToken } from '../lib.js';
 import { SERVER_URL } from '../server.js';
 
@@ -19,6 +19,7 @@ interface LiveStudent {
   scene: string | null;
   zone: string | null;
   zoneName: string | null;
+  mode?: string | null;
   x: number | null;
   z: number | null;
   poin: number;
@@ -176,7 +177,7 @@ export async function liveView(id: string): Promise<HTMLElement> {
                 h('span', { class: 'dot', style: `background:${s.online ? '#2FBF71' : '#C3CCDB'};margin-right:6px` }),
                 !s.claimed ? 'Belum masuk' : !s.approved ? h('span', { class: 'chip oranye' }, 'Perlu disetujui') : s.online ? 'Online' : 'Terputus',
               ),
-              h('td', null, s.online ? `${SCENE[s.scene ?? ''] ?? '—'}${s.zoneName ? ' · ' + s.zoneName : ''}` : '—'),
+              h('td', null, s.online ? `${SCENE[s.scene ?? ''] ?? '—'}${s.zoneName ? ' · ' + s.zoneName : ''}${s.mode && s.mode !== 'Berjalan' ? ' · ' + s.mode : ''}` : '—'),
               h('td', { style: 'font-family:Fredoka;font-size:18px' }, String(s.poin)),
               h('td', null, charBadge(s.avatar)),
               h('td', null, `${s.benar} benar / ${s.dijawab - s.benar} salah`),
@@ -223,9 +224,11 @@ export async function liveView(id: string): Promise<HTMLElement> {
     const ctx = heat.getContext('2d');
     if (!ctx) return;
     const W = heat.width;
-    const sc = W / (KOTA.half * 2);
-    const px = (x: number) => (x + KOTA.half) * sc;
-    const pz = (z: number) => (z + KOTA.half) * sc;
+    // Peta mencakup kota + Bandara (timur) + Kawasan Gedung Tinggi (barat)
+    const HALF = KOTA_WORLD_HALF;
+    const sc = W / (HALF * 2);
+    const px = (x: number) => (x + HALF) * sc;
+    const pz = (z: number) => (z + HALF) * sc;
     ctx.fillStyle = '#9ED98F';
     ctx.fillRect(0, 0, W, W);
     for (const zn of KOTA_ZONES) {

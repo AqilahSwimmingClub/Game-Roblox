@@ -1,5 +1,5 @@
 /** Layar 9–13: Pop-up Soal, Hasil Jawaban, Hasil Akhir, Podium, hitung mundur, peta besar. */
-import { KOTA, KOTA_ZONES, type AnswerPayload, type AnswerResultMsg, type FinalResultMsg, type PodiumEntry, type PublicQuestion } from '@eduverse/shared';
+import { KOTA, KOTA_WORLD_HALF, KOTA_ZONES, type AnswerPayload, type AnswerResultMsg, type FinalResultMsg, type PodiumEntry, type PublicQuestion } from '@eduverse/shared';
 import { h, btn, ui } from './dom.js';
 import { sfx } from '../world/audio.js';
 
@@ -214,21 +214,23 @@ export function showMap(px: number, pz: number, points: { x: number; z: number; 
   const S = Math.min(window.innerWidth, window.innerHeight) * 0.78;
   const cv = h('canvas', { width: 900, height: 900, style: `width:${S}px;height:${S}px;border-radius:20px;background:#9ed98f` }) as HTMLCanvasElement;
   const c = cv.getContext('2d')!;
-  const k = 900 / (KOTA.half * 2);
-  const t = (v: number) => (v + KOTA.half) * k;
+  // Di luar pagar kota (Bandara / Kawasan Gedung Tinggi) peta diperbesar cakupannya.
+  const HALF = Math.abs(px) > KOTA.half || Math.abs(pz) > KOTA.half ? KOTA_WORLD_HALF : KOTA.half;
+  const k = 900 / (HALF * 2);
+  const t = (v: number) => (v + HALF) * k;
   for (const z of KOTA_ZONES) {
     c.fillStyle = '#' + z.color.toString(16).padStart(6, '0') + '55';
     for (const r of z.rects) c.fillRect(t(r.x - r.hx), t(r.z - r.hz), r.hx * 2 * k, r.hz * 2 * k);
   }
   c.fillStyle = '#3fb4e8';
-  c.fillRect(0, t(KOTA.riverZ0), 900, (KOTA.riverZ1 - KOTA.riverZ0) * k);
+  c.fillRect(t(-KOTA.half), t(KOTA.riverZ0), KOTA.half * 2 * k, (KOTA.riverZ1 - KOTA.riverZ0) * k);
   c.fillStyle = '#5d6678';
   const road = (x: number, z: number, w: number, d: number) => c.fillRect(t(x - w / 2), t(z - d / 2), Math.max(3, w * k), Math.max(3, d * k));
   road(0, -KOTA.ring, KOTA.ring * 2, 12);
   road(0, KOTA.ring, KOTA.ring * 2, 12);
   road(-KOTA.ring, 0, 12, KOTA.ring * 2);
   road(KOTA.ring, 0, 12, KOTA.ring * 2);
-  road(0, 0, KOTA.half * 2, 12);
+  road(0, 0, HALF * 2 === KOTA.half * 2 ? KOTA.half * 2 : 1400, 12);
   road(0, 0, 12, KOTA.half * 2);
   road(0, KOTA.southZ, KOTA.half * 2, 9);
   road(-KOTA.sideX, 0, 9, KOTA.half * 2);

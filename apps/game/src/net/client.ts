@@ -6,7 +6,7 @@
  */
 import { io, type Socket } from 'socket.io-client';
 import { SERVER_URL, SERVER_LABEL } from './server.js';
-import { EV, type AnswerPayload, type AvatarConfig, type SceneId, type SessionPublicState, type RosterEntry, type PublicQuestion, type AnswerResultMsg, type ActivePoint } from '@eduverse/shared';
+import { EV, type VehicleStateMsg, type AnswerPayload, type AvatarConfig, type SceneId, type SessionPublicState, type RosterEntry, type PublicQuestion, type AnswerResultMsg, type ActivePoint } from '@eduverse/shared';
 
 export interface Me {
   absen: number;
@@ -146,10 +146,26 @@ export class NetClient {
   }
 
   enter(scene: SceneId) {
-    return this.call<{ ok: true; spawn: { x: number; y: number; z: number }; points?: ActivePoint[]; done?: string[] }>(EV.enterWorld, { scene });
+    return this.call<{ ok: true; spawn: { x: number; y: number; z: number }; points?: ActivePoint[]; done?: string[]; vehicles?: VehicleStateMsg[]; jetpack?: boolean }>(EV.enterWorld, { scene });
   }
 
-  sendState(s: { scene: SceneId; x: number; y: number; z: number; ry: number; anim: number; riding: boolean }) {
+  enterVehicle(id: string) {
+    return this.call<{ ok: true; vehicle: VehicleStateMsg }>(EV.vehicleEnter, { id });
+  }
+
+  exitVehicle(p: { x: number; y: number; z: number }) {
+    return this.call<{ ok: true; x: number; y: number; z: number }>(EV.vehicleExit, p);
+  }
+
+  setJetpack(on: boolean, stationId?: string) {
+    return this.call<{ ok: true; on: boolean }>(EV.jetpack, { on, stationId });
+  }
+
+  useRift(riftId: string) {
+    return this.call<{ ok: true; target: { x: number; y: number; z: number; ry: number }; nama: string }>(EV.riftUse, { riftId });
+  }
+
+  sendState(s: { scene: SceneId; x: number; y: number; z: number; ry: number; anim: number; riding: boolean; mode?: number; pitch?: number; roll?: number }) {
     if (this.connected) this.socket.volatile.emit(EV.state, s);
   }
 

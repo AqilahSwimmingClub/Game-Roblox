@@ -12,6 +12,7 @@ import { makeLabelSprite } from '../engine/signs.js';
 import type { Engine } from '../engine/engine.js';
 import { QuestionPoints, ACTION_LABEL, objectName } from './questionPoints.js';
 import { Bus } from './bus.js';
+import { LivingCity } from './living/index.js';
 
 export interface Prompt {
   kind: 'soal' | 'lift' | 'rak' | 'bus' | 'portal';
@@ -27,6 +28,8 @@ export class Stage {
   view: WorldView | null = null;
   points: QuestionPoints | null = null;
   bus: Bus | null = null;
+  /** Kota Hidup: lalu lintas, warga, pedagang, lubang dimensi, kendaraan parkir (hanya Dunia Kota). */
+  living: LivingCity | null = null;
   half = 50;
   spawn = { x: 0, y: 0.2, z: 0 };
   private extras = new THREE.Group();
@@ -55,6 +58,7 @@ export class Stage {
     this.view.viewDistance = p.viewDistance;
     this.view.lodDistance = p.lodDistance;
     this.view.setShadows(p.shadows);
+    this.living?.applyQuality(p);
   }
 
   private loadLobby() {
@@ -118,6 +122,9 @@ export class Stage {
     this.collision.water = k.water;
     this.points = new QuestionPoints(this.engine.scene);
     this.bus = new Bus(this.engine.scene);
+    this.living = new LivingCity(this.engine.scene, k.living);
+    // Kendaraan parkir bawaan (mode kelas: diganti status dari server begitu masuk)
+    this.living.parked.setStates(k.living.vehicles.map((v) => ({ id: v.id, kind: v.kind, x: v.x, y: v.y, z: v.z, heading: v.heading, color: v.color, driver: null })));
     this.lifts = k.lifts.map((l) => ({ id: l.id, label: l.label, x: l.x, y: l.y, z: l.z }));
     for (const l of k.lifts) {
       const pad = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.08, 1.6), new THREE.MeshBasicMaterial({ color: l.locked ? 0x8b5cf6 : 0x5cf2c8 }));
@@ -198,7 +205,12 @@ export class Stage {
   }
 
   setPoints(list: ActivePoint[], done?: string[]) {
-    this.points?.setPoints(list);
+    // Titik misi pedagang/warga (id V..) ditampilkan oleh pedagangnya sendiri, bukan sebagai tanda tanya.
+    this.points?.setPoints(list.filter((p) => !p.id.startsWith('V')));
+    if (this.living) {
+      for (const p of list) if (p.id.startsWith('V') && p.done) this.living.vendors.done.add(p.id);
+      for (const id of done ?? []) if (id.startsWith('V')) this.living.vendors.done.add(id);
+    }
     if (done) this.points?.setDone(done);
   }
 
@@ -206,6 +218,7 @@ export class Stage {
     this.view?.update(px, pz, t);
     this.points?.animate(t);
     this.bus?.update(serverNow);
+    this.living?.update(dt, t, px, pz, serverNow);
     for (const p of this.portalDiscs) p.mesh.rotation.z += dt * 0.8;
     this.extras.children.forEach((c) => {
       if (c.userData.edo) c.position.y = Math.sin(t * 2) * 0.12;
@@ -223,6 +236,7 @@ export class Stage {
     this.view?.dispose();
     this.points?.dispose();
     this.bus?.dispose();
+    this.living?.dispose();
     for (const a of this.podiumAvatars) a.dispose();
     this.extras.traverse((o) => {
       const m = o as THREE.Mesh;

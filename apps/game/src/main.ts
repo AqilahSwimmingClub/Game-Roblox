@@ -5,7 +5,7 @@
  */
 import './ui/styles.css';
 import * as THREE from 'three';
-import { EV, LIMITS, WORLDS, buildKota, buildLobby, DEFAULT_AVATAR, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
+import { EV, LIMITS, WORLDS, buildKota, buildLobby, DEFAULT_AVATAR, type VehicleStateMsg, type Vendor, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
 import { Engine } from './engine/engine.js';
 import { Input } from './engine/input.js';
 import { FollowCamera } from './engine/camera.js';
@@ -19,6 +19,7 @@ import { splash, welcome, masukSesi, pilihIdentitas, menungguGuru } from './ui/i
 import { pilihAvatar } from './ui/avatarScreen.js';
 import { Hud, WaitingRoom } from './ui/hud.js';
 import { showQuestion, showFinal, podiumBanner, countdown, showMap, blocker } from './ui/play.js';
+import { Mobility, type MobilityHost, type MobilityPrompt } from './world/living/mobility.js';
 
 // ───────────────────────── inisialisasi ─────────────────────────
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
@@ -36,6 +37,7 @@ if (input.touch) document.body.classList.add('touch');
 const cam = new FollowCamera(engine.camera);
 const effects = new Effects(engine.scene);
 const remote = new RemotePlayers(engine.scene);
+remote.onTeleport = (x, y, z) => effects.sparkle(new THREE.Vector3(x, y + 1.2, z));
 const net = new NetClient();
 const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
@@ -52,7 +54,8 @@ let waiting: WaitingRoom | null = null;
 let questionOpen = false;
 let riding = false;
 let busy = false;
-let prompt: Prompt | null = null;
+let prompt: Prompt | MobilityPrompt | null = null;
+let mobility: Mobility | null = null;
 let ended = false;
 let orbit = true;
 
@@ -84,6 +87,7 @@ const hud = new Hud({
   },
   currentQuality: () => engine.quality,
   recover: () => {
+    if (mobility?.driving) return void mobility.act({ kind: 'turun', id: mobility.driving.id, label: '' }).then(() => player?.recover());
     player?.recover();
     riding = false;
   },
@@ -105,6 +109,7 @@ function loadStage(scene: SceneId) {
   remote.clear();
   effects.clear();
   stage = new Stage(engine, scene);
+  mobility?.setCity(stage.living, stage.living ? stage.collision : null);
   if (session) stage.setEnabledWorlds(session.worlds);
   applyQuality();
   if (scene === 'kota') {
@@ -125,7 +130,11 @@ async function goScene(scene: SceneId): Promise<boolean> {
     loadStage(scene);
     if (!player) {
       player = new LocalPlayer(engine.scene, avatarCfg, label());
+      mobility = new Mobility(engine.scene, input, cam, player, mobilityHost, input.touch);
+      mobility.setCity(stage!.living, stage!.living ? stage!.collision : null);
     }
+    if (r.vehicles && stage!.living) stage!.living.parked.setStates(r.vehicles);
+    if (mobility) mobility.hasJetpack = !!r.jetpack;
     player.frozen = false;
     player.teleport(r.spawn.x, r.spawn.y, r.spawn.z, 0);
     stage!.view?.update(r.spawn.x, r.spawn.z, engine.clock.t, true);
@@ -149,6 +158,7 @@ input.onAction(() => void doAction());
 
 async function doAction() {
   if (!player || !stage || questionOpen || busy) return;
+  if (prompt && mobility && isMobilityPrompt(prompt)) return void mobility.act(prompt);
   if (riding) {
     riding = false;
     const b = stage.bus!;
@@ -180,6 +190,26 @@ async function doAction() {
   }
 }
 
+function isMobilityPrompt(p: Prompt | MobilityPrompt): p is MobilityPrompt {
+  return p.kind === 'kendaraan' || p.kind === 'turun' || p.kind === 'jetpack' || p.kind === 'pedagang';
+}
+
+/** Mode kelas: semua perubahan kendaraan/jetpack/portal divalidasi server. */
+const mobilityHost: MobilityHost = {
+  enterVehicle: (id) => net.enterVehicle(id),
+  exitVehicle: (p) => net.exitVehicle(p),
+  setJetpack: (on, st) => net.setJetpack(on, st),
+  useRift: (id) => net.useRift(id),
+  startMission: (v: Vendor) => void openQuestion(v.id),
+  missionDone: (id) => !!stage?.living?.vendors.done.has(id),
+  toLobby: () => void goScene('lobi'),
+  notify: (t, k) => notify(t, k ?? 'info'),
+  setBusy: (b) => {
+    input.enabled = !b;
+    input.reset();
+  },
+};
+
 async function openQuestion(pointId: string) {
   if (!player) return;
   questionOpen = true;
@@ -199,6 +229,7 @@ async function openQuestion(pointId: string) {
       if (!res.ok) return res.error;
       if (!res.result.canRetry) {
         stage?.points?.markDone(pointId);
+        if (pointId.startsWith('V')) stage?.living?.vendors.done.add(pointId);
         lastScore.dijawab++;
         hud.setProgress(lastScore.dijawab, session?.progressTarget ?? null);
         if (res.result.correct && player) effects.sparkle(new THREE.Vector3(player.body.x, player.body.y + 2, player.body.z));
@@ -281,8 +312,15 @@ net.on<{ poin: number; benar: number; dijawab: number; rank: number | null; tota
 });
 net.on<LeaderboardRow[]>(EV.leaderboard, (rows) => hud.setLeaderboard(rows));
 net.on<{ text: string; kind?: string }>(EV.notify, (m) => notify(m.text, m.kind ?? 'info'));
-net.on<{ x: number; y: number; z: number; reason: string }>(EV.teleport, (m) => {
+net.on<VehicleStateMsg[]>(EV.vehicles, (list) => stage?.living?.parked.setStates(list));
+net.on<{ x: number; y: number; z: number; reason: string; mode?: string }>(EV.teleport, (m) => {
   riding = false;
+  if (mobility?.driving && m.mode !== 'jalan' && m.reason === 'koreksi') {
+    // koreksi kecil dari server saat berkendara: geser kendaraan ke posisi sah terakhir
+    Object.assign(mobility.driving.body, { x: m.x, y: m.y, z: m.z, speed: 0 });
+    return;
+  }
+  if (mobility?.active && m.mode === 'jalan') mobility.forceWalk();
   player?.teleport(m.x, m.y, m.z);
   if (m.reason === 'pulih') notify('Hup! Kamu kembali ke tempat aman.', 'info');
 });
@@ -367,10 +405,14 @@ net.onReconnect(async () => {
   me = r.me;
   notify('Tersambung kembali!', 'sukses');
   if (stage) {
+    // Server melepas kendaraan saat koneksi putus (kendaraan diparkir di posisi terakhir yang sah)
+    mobility?.forceWalk();
     const res = await net.enter(stage.scene);
     if (res.ok && player) {
       player.teleport(res.spawn.x, res.spawn.y, res.spawn.z);
       if (res.points) stage.setPoints(res.points, res.done);
+      if (res.vehicles) stage.living?.parked.setStates(res.vehicles);
+      if (mobility) mobility.hasJetpack = !!res.jetpack;
     }
   }
 });
@@ -430,7 +472,7 @@ engine.onFrame((dt, t) => {
       input.jump = false;
       void doAction();
     }
-  } else player.update(dt, input, cam, stage.collision);
+  } else if (!(mobility && mobility.update(dt, t))) player.update(dt, input, cam, stage.collision);
   player.lowGravity = false;
 
   const b = player.body;
@@ -441,13 +483,16 @@ engine.onFrame((dt, t) => {
   if (podiumCam) {
     engine.camera.position.set(Math.sin(t * 0.2) * 3, 4.6, 12);
     engine.camera.lookAt(0, 2.6, -6);
-  } else cam.update(dt, b.x, b.y, b.z, stage.collision);
+  } else {
+    const ct = mobility?.camTarget() ?? b;
+    cam.update(dt, ct.x, ct.y, ct.z, stage.collision);
+  }
   engine.followSun(b.x, b.y, b.z);
   stage.update(dt, t, b.x, b.z, net.serverNow());
   remote.update(dt, engine.camera.position);
 
   // Tombol interaksi hanya muncul saat dekat objek
-  prompt = questionOpen || ended ? null : riding ? { kind: 'bus', id: 'bus', label: 'Turun Bus' } : stage.nearestPrompt(b.x, b.y, b.z);
+  prompt = questionOpen || ended ? null : riding ? { kind: 'bus', id: 'bus', label: 'Turun Bus' } : mobility?.driving || mobility?.prompt?.kind === 'pedagang' ? mobility.prompt : (stage.nearestPrompt(b.x, b.y, b.z) ?? mobility?.prompt ?? null);
   const key = prompt ? `${prompt.kind}:${prompt.id}` : '';
   if (key !== lastPromptKey) {
     lastPromptKey = key;
@@ -458,7 +503,7 @@ engine.onFrame((dt, t) => {
   sendAcc += dt;
   if (sendAcc >= 1 / LIMITS.stateHz) {
     sendAcc = 0;
-    net.sendState({ scene: stage.scene, x: round(b.x), y: round(b.y), z: round(b.z), ry: round(player.ry), anim: player.anim, riding });
+    net.sendState({ scene: stage.scene, x: round(b.x), y: round(b.y), z: round(b.z), ry: round(player.ry), anim: player.anim, riding, ...(mobility?.netExtras() ?? {}) });
   }
   hud.updateTimer(session, net.serverNow());
   if (stage.scene === 'kota') hud.drawMinimap(b.x, b.z, cam.yaw, player.ry, pointList(), remote.positions());
@@ -469,10 +514,18 @@ let autopilot: { x: number; z: number } | null = null;
 if (debug) {
   (window as unknown as { __eduDebug: unknown }).__eduDebug = {
     goTo: (x: number, z: number) => void (autopilot = { x, z }),
-    stop: () => void (autopilot = null),
+    stop: () => {
+      autopilot = null;
+      input.moveX = input.moveY = 0;
+      input.jump = false;
+    },
     walking: () => autopilot !== null,
     openPoints: () => (stage?.points?.list() ?? []).filter((e) => !e.done && !e.p.hidden).map((e) => ({ id: e.p.id, x: e.p.x, y: e.p.y, z: e.p.z, object: e.p.object })),
     action: () => void doAction(),
+    control: (c: Record<string, boolean>) => mobility?.setControl(c),
+    /** Uji keamanan (mode ?debug=1): kirim permintaan mentah — server tetap memvalidasi semuanya. */
+    raw: { enterVehicle: (id: string) => net.enterVehicle(id), useRift: (id: string) => net.useRift(id), setJetpack: (on: boolean, st?: string) => net.setJetpack(on, st) },
+    vendors: () => stage?.living?.layout.vendors.map((v) => ({ id: v.id, x: v.x, z: v.z })) ?? [],
   };
 }
 const round = (v: number) => Math.round(v * 100) / 100;
@@ -493,6 +546,10 @@ function exposeState() {
     status: session?.status ?? null,
     prompt: prompt?.kind ?? null,
     fps: engine.fps,
+    mobility: mobility?.snapshot() ?? null,
+    traffic: stage?.living?.traffic.snapshot() ?? null,
+    remoteModes: remote.modes(),
+    vehicles: stage?.living?.parked.all().map((v) => ({ id: v.id, driver: v.driver ? 'ya' : null, x: Math.round(v.x), z: Math.round(v.z) })) ?? [],
   };
 }
 

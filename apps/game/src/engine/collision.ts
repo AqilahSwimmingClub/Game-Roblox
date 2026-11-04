@@ -50,10 +50,10 @@ export class CollisionWorld {
       }
   }
 
-  addBoxes(boxes: Box[]) {
+  addBoxes(boxes: Box[], idOffset = 0) {
     boxes.forEach((b, i) => {
       if (b.k !== 'solid' && b.k !== 'glass') return;
-      this.add({ id: i, x0: b.x - b.sx / 2, x1: b.x + b.sx / 2, y0: b.y - b.sy / 2, y1: b.y + b.sy / 2, z0: b.z - b.sz / 2, z1: b.z + b.sz / 2 });
+      this.add({ id: i + idOffset, x0: b.x - b.sx / 2, x1: b.x + b.sx / 2, y0: b.y - b.sy / 2, y1: b.y + b.sy / 2, z0: b.z - b.sz / 2, z1: b.z + b.sz / 2 });
     });
   }
 
@@ -158,6 +158,47 @@ export function stepBody(world: CollisionWorld, b: BodyState, wishX: number, wis
     moveHorizontal(world, b, b.vx * h, b.vz * h);
     moveVertical(world, b, b.vy * h);
   }
+}
+
+/**
+ * Terbang dengan jetpack: kecepatan vertikal dikendalikan langsung (naik/turun/melayang),
+ * tabrakan dinding & pendaratan memakai fungsi yang sama dengan berjalan (bisa mendarat di atap).
+ */
+export function stepBodyFly(world: CollisionWorld, b: BodyState, wishX: number, wishZ: number, speed: number, targetVy: number, dt: number) {
+  const k = Math.min(1, 4 * dt);
+  b.vx += (wishX * speed - b.vx) * k;
+  b.vz += (wishZ * speed - b.vz) * k;
+  b.vy += (targetVy - b.vy) * Math.min(1, 5 * dt);
+  b.swimming = false;
+  b.submerged = 0;
+  const dist = Math.hypot(b.vx * dt, b.vz * dt, b.vy * dt);
+  const steps = Math.max(1, Math.ceil(dist / 0.3));
+  const h = dt / steps;
+  for (let i = 0; i < steps; i++) {
+    moveHorizontal(world, b, b.vx * h, b.vz * h);
+    moveVertical(world, b, b.vy * h);
+  }
+}
+
+/** Tinggi permukaan padat tertinggi di bawah titik (≤ maxY), atau −Infinity. */
+export function groundBelow(world: CollisionWorld, x: number, z: number, maxY: number, r = 0.3): number {
+  let g = -Infinity;
+  for (const a of world.query(x - r, x + r, z - r, z + r, scratch)) {
+    if (x + r <= a.x0 || x - r >= a.x1 || z + r <= a.z0 || z - r >= a.z1) continue;
+    if (a.y1 <= maxY && a.y1 > g) g = a.y1;
+  }
+  return g;
+}
+
+/** Apakah lingkaran (x,z,r) pada rentang tinggi y0..y1 menabrak kotak padat. */
+export function circleBlocked(world: CollisionWorld, x: number, z: number, r: number, y0: number, y1: number): boolean {
+  for (const a of world.query(x - r, x + r, z - r, z + r, scratch)) {
+    if (a.y1 <= y0 || a.y0 >= y1) continue;
+    const cx = Math.max(a.x0, Math.min(x, a.x1));
+    const cz = Math.max(a.z0, Math.min(z, a.z1));
+    if ((x - cx) ** 2 + (z - cz) ** 2 < r * r) return true;
+  }
+  return false;
 }
 
 function moveHorizontal(world: CollisionWorld, b: BodyState, dx: number, dz: number) {

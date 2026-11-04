@@ -4,7 +4,10 @@
  * tidak ada pemain lain, dan hasil ini bukan asesmen resmi.
  */
 import './ui/styles.css';
-import { buildKota, DEFAULT_AVATAR, type ActivePoint } from '@eduverse/shared';
+import { buildKota, DEFAULT_AVATAR, riftExit, VEHICLE_SPEC, type ActivePoint, type VehicleKind, type VehicleStateMsg } from '@eduverse/shared';
+import { Mobility, type MobilityHost, type MobilityPrompt } from './world/living/mobility.js';
+import { localMission, localMissionDialog } from './world/living/missions.js';
+import { notify } from './ui/dom.js';
 import { Engine } from './engine/engine.js';
 import { Input } from './engine/input.js';
 import { FollowCamera } from './engine/camera.js';
@@ -29,7 +32,7 @@ const nearbyDemo: ActivePoint = {
 };
 const markers: ActivePoint[] = [
   nearbyDemo,
-  ...layout.spawns.map((s) => ({
+  ...layout.spawns.filter((s) => !s.id.startsWith('V')).map((s) => ({
     id: s.id, x: s.x, y: s.y, z: s.z, zone: s.zone,
     object: s.object, hidden: s.hidden, surprise: false, done: false,
   })),
@@ -63,7 +66,7 @@ overlay.className = 'demo-overlay';
 overlay.innerHTML = `
   <div class="demo-head">EDUVERSE · DEMO KOTA<small>Tanpa kode kelas · Poin uji: <span id="demo-score">0</span></small></div>
   <a class="demo-back" href="/">← Menu utama</a>
-  <div class="demo-hint">Kiri: jalan · Kanan: putar kamera · Cari tanda tanya (?)</div>
+  <div class="demo-hint">Kiri: jalan · Kanan: putar kamera · Coba mobil/motor di area P, jetpack oranye, portal ungu, pedagang (!)</div>
   <div class="demo-bottom">
     <button id="demo-run" class="demo-run" type="button">Lari</button>
     <button id="demo-jump" class="demo-jump" type="button">Lompat</button>
@@ -91,7 +94,7 @@ runBtn.onclick = () => {
   runBtn.textContent = input.runToggle ? 'Jalan' : 'Lari';
 };
 let score = 0;
-let currentPrompt: Prompt | null = null;
+let currentPrompt: Prompt | MobilityPrompt | null = null;
 let riding = false;
 let answering = false;
 const questions = [
@@ -152,9 +155,83 @@ function questionAt(id: string) {
   modal.replaceChildren(card);
   modal.style.display = 'flex';
 }
+// ───── Mode Demo: kendaraan, jetpack, portal & misi berjalan LOKAL (tidak mengubah data kelas resmi) ─────
+const demoVehicles = new Map<string, VehicleStateMsg>(layout.living.vehicles.map((v) => [v.id, { id: v.id, kind: v.kind, x: v.x, y: v.y, z: v.z, heading: v.heading, color: v.color, driver: null }]));
+let demoDriving: string | null = null;
+let demoJetpack = false;
+const missionsDone = new Set<string>();
+const demoHost: MobilityHost = {
+  async enterVehicle(id) {
+    const v = demoVehicles.get(id);
+    if (!v || v.driver) return { ok: false, error: 'Kendaraan tidak tersedia.' };
+    const spec = VEHICLE_SPEC[v.kind as VehicleKind];
+    if (Math.hypot(player.body.x - v.x, player.body.z - v.z) > spec.interact + 2) return { ok: false, error: 'Mendekatlah ke kendaraan.' };
+    v.driver = 'saya';
+    demoDriving = id;
+    stage.living?.parked.setStates([...demoVehicles.values()]);
+    return { ok: true, vehicle: { ...v } };
+  },
+  async exitVehicle(p) {
+    const v = demoDriving ? demoVehicles.get(demoDriving) : null;
+    const d = mobility.driving;
+    if (v && d) Object.assign(v, { x: d.body.x, y: Math.max(0, d.kind === 'pesawat' ? Math.min(d.body.y, 0.05) : d.body.y), z: d.body.z, heading: d.body.heading, driver: null });
+    demoDriving = null;
+    stage.living?.parked.setStates([...demoVehicles.values()]);
+    return { ok: true, ...p };
+  },
+  async setJetpack(on, stationId) {
+    if (on && !demoJetpack) {
+      const st = layout.living.jetpacks.find((j) => j.id === stationId);
+      if (!st || Math.hypot(player.body.x - st.x, player.body.z - st.z) > 5) return { ok: false, error: 'Ambil jetpack di Stasiun Jetpack.' };
+      demoJetpack = true;
+    }
+    return { ok: true };
+  },
+  async useRift(id) {
+    const r = layout.living.rifts.find((x) => x.id === id);
+    const dest = r && layout.living.rifts.find((x) => x.id === r.to);
+    if (!r || !dest) return { ok: false, error: 'Tujuan belum tersedia.' };
+    return { ok: true, target: riftExit(dest), nama: dest.nama };
+  },
+  startMission(v) {
+    const m = localMission(v);
+    answering = true;
+    input.enabled = false;
+    input.reset();
+    localMissionDialog(
+      v,
+      m,
+      (ok) => {
+        if (ok) {
+          score += 100;
+          scoreEl.textContent = String(score);
+          missionsDone.add(v.id);
+          stage.living?.vendors.done.add(v.id);
+        }
+      },
+      () => {
+        answering = false;
+        input.enabled = true;
+      },
+    );
+  },
+  missionDone: (id) => missionsDone.has(id),
+  toLobby: null,
+  notify: (t, k) => notify(t, k ?? 'info'),
+  setBusy: (b) => {
+    answering = b;
+    input.enabled = !b;
+    input.reset();
+  },
+};
+const mobility = new Mobility(engine.scene, input, cam, player, demoHost, input.touch);
+mobility.setCity(stage.living, stage.collision);
+const isMob = (p: Prompt | MobilityPrompt): p is MobilityPrompt => p.kind === 'kendaraan' || p.kind === 'turun' || p.kind === 'jetpack' || p.kind === 'pedagang';
+
 function action() {
   const p = currentPrompt;
   if (!p || answering) return;
+  if (isMob(p)) return void mobility.act(p);
   if (riding) { riding = false; player.teleport(player.body.x + 3, 0.5, player.body.z); return; }
   if (p.kind === 'soal') return questionAt(p.id);
   if (p.kind === 'rak') return stage.openRak(engine.clock.t);
@@ -179,15 +256,16 @@ engine.onFrame((dt, t) => {
   if (riding && stage.bus) {
     const seat = stage.bus.seat();
     player.update(dt, input, cam, stage.collision, { ...seat, heading: stage.bus.heading });
-  } else {
+  } else if (!mobility.update(dt, t)) {
     player.update(dt, input, cam, stage.collision);
   }
   if (player.body.y < -30) player.teleport(stage.spawn.x, stage.spawn.y + 0.5, stage.spawn.z);
   const b = player.body;
-  cam.update(dt, b.x, b.y, b.z, stage.collision);
+  const ct = mobility.camTarget();
+  cam.update(dt, ct.x, ct.y, ct.z, stage.collision);
   engine.followSun(b.x, b.y, b.z);
   stage.update(dt, t, b.x, b.z, Date.now());
-  currentPrompt = riding ? { kind: 'bus', id: 'bus', label: 'Turun Bus' } : stage.nearestPrompt(b.x, b.y, b.z);
+  currentPrompt = riding ? { kind: 'bus', id: 'bus', label: 'Turun Bus' } : mobility.driving || mobility.prompt?.kind === 'pedagang' ? mobility.prompt : (stage.nearestPrompt(b.x, b.y, b.z) ?? mobility.prompt);
   const name = currentPrompt?.label ?? '';
   if (name !== prevPrompt) {
     prevPrompt = name;
@@ -196,6 +274,32 @@ engine.onFrame((dt, t) => {
   }
 });
 (window as unknown as { __eduDemo?: unknown }).__eduDemo = {
-  getState: () => ({ score, position: { x: player.body.x, y: player.body.y, z: player.body.z }, prompt: currentPrompt?.kind ?? null }),
+  getState: () => ({
+    score,
+    position: { x: player.body.x, y: player.body.y, z: player.body.z },
+    prompt: currentPrompt?.kind ?? null,
+    promptId: (currentPrompt as { id?: string } | null)?.id ?? null,
+    mobility: mobility.snapshot(),
+    traffic: stage.living?.traffic.snapshot() ?? null,
+    fps: engine.fps,
+    missionsDone: [...missionsDone],
+  }),
+  /** Uji otomatis: pindahkan pemain (Mode Demo saja — tidak ada server, tidak ada nilai resmi). */
+  teleport: (x: number, y: number, z: number, ry = 0) => {
+    player.teleport(x, y, z, ry);
+    cam.yaw = ry + Math.PI;
+    cam.snap();
+  },
+  action: () => action(),
+  control: (c: Record<string, boolean>) => mobility.setControl(c),
+  setMove: (x: number, y: number, jump = false, dive = false) => {
+    input.moveX = x;
+    input.moveY = y;
+    input.jump = jump;
+    input.dive = dive;
+  },
+  /** Apakah titik berada di dalam kotak padat (uji "tidak terjebak di bangunan"). */
+  inside: (x: number, y: number, z: number) => stage.collision.pointBlocked(x, y, z, []),
+  layout: () => ({ vehicles: layout.living.vehicles, rifts: layout.living.rifts, vendors: layout.living.vendors.map((v) => ({ id: v.id, x: v.x, y: v.y, z: v.z, nama: v.nama })), jetpacks: layout.living.jetpacks, runway: layout.living.runway }),
 };
 engine.start();
