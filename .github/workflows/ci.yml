@@ -95,6 +95,11 @@ jobs:
       - run: node tests/e2e/demo.mjs
         env:
           SHOTS: e2e-shots
+      - name: Kota Hidup di Mode Demo (kendaraan, jetpack, pesawat, portal, NPC, pedagang)
+        run: node tests/e2e/living-city.mjs
+        env:
+          SHOTS: e2e-shots
+          OUT: living-city-ci.json
       - run: node tests/security/abuse.mjs
       - run: node tests/load/bots.mjs --players 50,100 --duration 20
         env:
@@ -106,5 +111,6 @@ jobs:
           path: |
             e2e-shots
             loadtest-ci.json
+            living-city-ci.json
             server.log
           retention-days: 7

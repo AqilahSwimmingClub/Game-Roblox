@@ -25,6 +25,7 @@
     "loadtest": "node tests/load/bots.mjs",
     "build:web": "npm run build -w @eduverse/shared && npm run build -w @eduverse/game && npm run build -w @eduverse/dashboard -- --outDir ../game/dist/guru --emptyOutDir && node scripts/write-web-config.mjs",
     "e2e:demo": "node tests/e2e/demo.mjs",
+    "e2e:kota": "node tests/e2e/living-city.mjs",
     "test:security": "node tests/security/abuse.mjs"
   }
 }

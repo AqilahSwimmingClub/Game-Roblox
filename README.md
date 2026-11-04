@@ -24,7 +24,10 @@ dari **Dashboard Guru** di tablet Android. Acuan desain: dokumen *EDUVERSE Tahap
 | Multipemain real-time (interest management: instance 60, 30 pemain terdekat, radius 150 m) | ✅ diuji 2 browser + 500 bot |
 | Podium 3D juara 1–3 | ✅ |
 | Kualitas grafis Rendah / Sedang / Tinggi / Otomatis (turun otomatis bila FPS rendah) | ✅ |
-| Dunia Hutan, Laut, Luar Angkasa | ⏳ tahap berikutnya (portal tampil "segera hadir") |
+| **Kota Hidup**: lalu lintas NPC lajur kiri + lampu & zebra cross, pejalan kaki, 14 pedagang/warga dengan misi kontekstual, toko & parkir | ✅ diuji otomatis — [docs/KOTA-HIDUP.md](docs/KOTA-HIDUP.md) |
+| Kendaraan yang bisa dikendarai (sepeda, motor, mobil, bus, **pesawat**), **jetpack** (mendarat di atap), **lubang dimensi** + Taman Langit, Bandara & Kawasan Gedung Tinggi | ✅ diuji otomatis (Mode Demo 14/14, multipemain 17/17) — belum di HP fisik |
+| Supabase PostgreSQL (skema + RLS, tanpa layanan berbayar) | ✅ skema diterapkan; server game tetap Node otoritatif |
+| Dunia Hutan, Laut, Luar Angkasa | ⏳ tahap berikutnya (portal & Gerbang Antardunia tampil "segera hadir") |
 | Frontend publik (Vercel: game `/`, Dashboard `/guru/`, demo) | ✅ konfigurasi siap (`vercel.json`); terbit otomatis dari GitHub |
 | Backend online (Render: Node + Socket.IO + PostgreSQL) | ⏳ `render.yaml` siap — perlu diaktifkan sekali oleh pemilik akun, lihat [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 
@@ -39,6 +42,7 @@ apps/server         Express + Socket.IO + PostgreSQL: API guru, impor/ekspor, ru
 apps/game           Game siswa (Three.js, Vite)
   src/engine        renderer, kualitas grafis, streaming chunk + LOD, tabrakan, kamera, input sentuh, avatar
   src/world         pemain lokal & jarak jauh, titik soal, bus, efek, audio, panggung (lobi/kota/podium)
+  src/world/living  Kota Hidup: lalu lintas & warga NPC, kendaraan, pesawat, jetpack, lubang dimensi, pedagang
   src/ui            layar pembuka, avatar, HUD, panel soal, hasil
   src/net           klien Socket.IO (token identitas, sambung ulang otomatis, sinkron jam)
 apps/dashboard      Dashboard Guru (TypeScript + Vite, tanpa framework)
@@ -79,6 +83,7 @@ Mode pengembangan dengan hot reload: `npm run dev` (server) lalu `npm run dev -w
 | `npm run build:web` | Build frontend statis untuk Vercel (game + Dashboard `/guru/` + demo + `eduverse-config.js`) |
 | `npm run e2e` | Uji alur kelas guru + 2 siswa di 3 browser terpisah (butuh `playwright` + Chromium) |
 | `npm run e2e:demo` / `npm run test:security` | Uji Mode Demo / uji keamanan & kasus tepi |
+| `npm run e2e:kota` | Uji Kota Hidup di Mode Demo (NPC, pedagang, kendaraan, jetpack, pesawat, portal) |
 | `node tests/web-static-server.mjs 4173` | Sajikan build web seperti Vercel (uji lintas origin lokal) |
 | `npm run loadtest -- --players 50,100,200,500 --duration 60` | Uji beban |
 

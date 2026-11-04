@@ -184,6 +184,89 @@ try {
     await shot(teacher, 'g4-umpan-jawaban');
   });
 
+  // ───────── Kota Hidup multipemain: kendaraan, jetpack, lubang dimensi, validasi server, sambung ulang ─────────
+  const goTo = async (pg, x, z, until = null, ms = 90000) => {
+    await pg.evaluate(({ x, z }) => window.__eduDebug.goTo(x, z), { x, z });
+    await pg.waitForFunction((u) => !window.__eduDebug.walking() || (u && window.__edu.prompt === u), until, { timeout: ms }).catch(() => undefined);
+    await pg.evaluate(() => window.__eduDebug.stop());
+  };
+  const edu = (pg) => pg.evaluate(() => window.__edu);
+  await step('Server menolak kendaraan/portal/jetpack dari jauh (validasi tepercaya)', async () => {
+    const r = await a.page.evaluate(async () => {
+      const d = window.__eduDebug.raw;
+      return [await d.enterVehicle('PESAWAT25'), await d.useRift('R_PASAR'), await d.setJetpack(true, 'JP_TAMAN')];
+    });
+    if (r.some((x) => x.ok)) throw new Error(JSON.stringify(r));
+    console.log(`    ditolak: ${r.map((x) => x.error).join(' | ')}`);
+  });
+  await step('Siswa A naik mobil → siswa B melihat A mengendarai mobil', async () => {
+    await goTo(a.page, 47, 50, 'kendaraan');
+    if ((await edu(a.page)).prompt !== 'kendaraan') throw new Error(`prompt ${(await edu(a.page)).prompt}`);
+    const pid = (await edu(a.page)).mobility.promptId;
+    await a.page.evaluate(() => window.__eduDebug.action());
+    const okEnter = await a.page.waitForFunction(() => ['mobil', 'motor', 'sepeda'].includes(window.__edu.mobility?.mode), null, { timeout: 8000 }).then(() => true, () => false);
+    if (!okEnter) throw new Error(`tidak bisa naik ${pid}: ${JSON.stringify(await a.page.evaluate((id) => window.__eduDebug.raw.enterVehicle(id), pid))} pos=${JSON.stringify((await edu(a.page)).pos)}`);
+    const kind = (await edu(a.page)).mobility.mode;
+    await b.page.waitForFunction((k) => window.__edu.remoteModes.some((r) => r.nama === 'Raka' && r.mode === k && r.vehicleVisible), kind, { timeout: 10000 });
+    await b.page.waitForFunction(() => window.__edu.vehicles.some((v) => v.driver), null, { timeout: 5000 });
+    await a.page.evaluate(() => window.__eduDebug.control({ gas: true }));
+    await a.page.waitForTimeout(2500);
+    await a.page.evaluate(() => window.__eduDebug.control({ gas: false, brake: true }));
+    await a.page.waitForTimeout(2000);
+    await a.page.evaluate(() => window.__eduDebug.control({ brake: false }));
+    const seen = (await edu(b.page)).remoteModes.find((r) => r.nama === 'Raka');
+    await shot(b.page, 's3b-b-melihat-a-berkendara');
+    await a.page.evaluate(() => window.__eduDebug.action()); // turun
+    const okExit = await a.page.waitForFunction(() => window.__edu.mobility?.mode === 'jalan', null, { timeout: 8000 }).then(() => true, () => false);
+    if (!okExit) throw new Error(`gagal turun: ${JSON.stringify((await edu(a.page)).mobility)} prompt=${(await edu(a.page)).prompt} teks=${(await a.page.locator('.notify-wrap').innerText()).slice(0, 200)}`);
+    await b.page.waitForFunction(() => window.__edu.remoteModes.some((r) => r.nama === 'Raka' && r.mode === 'jalan' && !r.vehicleVisible), null, { timeout: 10000 });
+    await b.page.waitForFunction(() => !window.__edu.vehicles.some((v) => v.driver), null, { timeout: 5000 });
+    console.log(`    B melihat Raka mengendarai ${kind} di (${seen.x}, ${seen.z}); setelah turun kendaraan diparkir di posisi baru untuk semua pemain`);
+  });
+  await step('Siswa A memakai jetpack → siswa B melihat jetpack & A terbang', async () => {
+    await goTo(a.page, -30, 31, 'jetpack');
+    if ((await edu(a.page)).prompt !== 'jetpack') throw new Error(`prompt ${(await edu(a.page)).prompt}`);
+    await a.page.evaluate(() => window.__eduDebug.action());
+    await a.page.waitForFunction(() => window.__edu.mobility?.mode === 'jetpack', null, { timeout: 8000 });
+    await a.page.keyboard.down('Space');
+    await a.page.waitForFunction(() => window.__edu.pos.y > 12, null, { timeout: 10000 });
+    await a.page.keyboard.up('Space');
+    await b.page.waitForFunction(() => window.__edu.remoteModes.some((r) => r.nama === 'Raka' && r.mode === 'jetpack' && r.jetpackVisible && r.y > 8), null, { timeout: 10000 });
+    await shot(b.page, 's3c-b-melihat-a-jetpack');
+    await a.page.keyboard.down('KeyC');
+    await a.page.waitForFunction(() => window.__edu.pos.y < 0.5, null, { timeout: 15000 });
+    await a.page.keyboard.up('KeyC');
+    await a.page.keyboard.press('KeyF');
+    await a.page.waitForFunction(() => window.__edu.mobility?.mode === 'jalan', null, { timeout: 8000 });
+  });
+  const scoreBeforeRift = (await edu(a.page)).score;
+  await step('Siswa A masuk lubang dimensi Alun-alun → Bandara; avatar & skor tetap; server menerima posisi baru', async () => {
+    await goTo(a.page, 24, 22); // memutari Menara Jam
+    await goTo(a.page, 26, -26);
+    await a.page.waitForFunction(() => window.__edu.pos.x > 600, null, { timeout: 10000 });
+    await a.page.waitForTimeout(3000);
+    const e = await edu(a.page);
+    if (e.pos.x < 600) throw new Error(`posisi dikoreksi server: ${JSON.stringify(e.pos)}`);
+    if (e.score !== scoreBeforeRift || e.myChar !== 0) throw new Error(`skor/karakter berubah ${e.score} ${e.myChar}`);
+    await shot(a.page, 's3d-bandara');
+    console.log(`    tiba di (${e.pos.x.toFixed(0)}, ${e.pos.z.toFixed(0)}) · skor ${e.score} · karakter ${e.myChar}`);
+  });
+  await step('Sambung ulang saat mengendarai: kendaraan dilepas dengan aman, sesi & skor utuh', async () => {
+    await goTo(a.page, 685, 171, 'kendaraan');
+    if ((await edu(a.page)).prompt !== 'kendaraan') throw new Error(`prompt ${(await edu(a.page)).prompt}`);
+    await a.page.evaluate(() => window.__eduDebug.action());
+    await a.page.waitForFunction(() => window.__edu.mobility?.mode !== 'jalan', null, { timeout: 8000 });
+    const id = (await edu(a.page)).mobility.vehicle.id;
+    await a.page.context().setOffline(true);
+    await a.page.waitForTimeout(30000);
+    await a.page.context().setOffline(false);
+    await a.page.waitForFunction(() => window.__edu.mobility?.mode === 'jalan' && window.__edu.scene === 'kota', null, { timeout: 40000 });
+    await a.page.waitForFunction((vid) => window.__edu.vehicles.some((v) => v.id === vid && !v.driver), id, { timeout: 10000 });
+    const e = await edu(a.page);
+    if (e.score !== scoreBeforeRift) throw new Error('skor berubah');
+    console.log(`    setelah sambung ulang: mode ${e.mobility.mode}, ${id} diparkir (tanpa pengemudi), posisi (${e.pos.x.toFixed(0)}, ${e.pos.z.toFixed(0)}), skor ${e.score}`);
+  });
+
   await step('Guru mengakhiri permainan → hasil akhir tampil', async () => {
     teacher.once('dialog', (d) => d.accept());
     await teacher.getByRole('button', { name: '■ Akhiri Permainan' }).click();
