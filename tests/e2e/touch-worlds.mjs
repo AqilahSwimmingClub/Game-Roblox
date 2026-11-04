@@ -115,10 +115,19 @@ async function device(browser, name, w, h) {
     });
     if (bad.length) throw new Error(`${label}: keluar layar → ${bad.slice(0, 3).join(' · ')}`);
   };
+  // Autopilot uji (garis lurus). Bila jalurnya melewati pusaran Gerbang Antardunia, dialog gerbang muncul seperti
+  // pada pemain sungguhan: tutup dengan "Tutup" (seperti anak-anak) lalu lanjutkan perjalanan.
   const goTo = async (x, z, until = null, ms = 90000) => {
-    await page.evaluate(({ x, z }) => window.__eduDebug.goTo(x, z), { x, z });
-    await page.waitForFunction((u) => !window.__eduDebug.walking() || (u && window.__edu.prompt === u), until, { timeout: ms }).catch(() => undefined);
-    await page.evaluate(() => window.__eduDebug.stop());
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await page.evaluate(({ x, z }) => window.__eduDebug.goTo(x, z), { x, z });
+      await page
+        .waitForFunction((u) => !window.__eduDebug.walking() || (u && window.__edu.prompt === u) || !!document.querySelector('[data-gate]'), until, { timeout: ms })
+        .catch(() => undefined);
+      await page.evaluate(() => window.__eduDebug.stop());
+      if (!(await page.locator('[data-gate]').count())) return;
+      await page.getByRole('button', { name: 'Tutup' }).last().tap();
+      await page.waitForFunction(() => !document.querySelector('[data-gate]') && !window.__edu.input.locks.length, null, { timeout: 5000 });
+    }
   };
   const toWorld = async (world, label) => {
     const sc = (await edu()).scene;
