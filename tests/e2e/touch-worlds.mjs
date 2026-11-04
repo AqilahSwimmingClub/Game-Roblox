@@ -231,7 +231,9 @@ try {
   if (!process.env.FAST) await step('Pedagang/Toko: buka dialog pedagang lalu tutup → joystick jalan', async () => {
     const vs = await A.page.evaluate(() => window.__eduDebug.vendors());
     const me = (await A.edu()).pos;
-    const v = vs.filter((x) => x.y < 1).sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0];
+    // Mas Joko (V03) berdiri di alun-alun terbuka: jalur autopilot uji (garis lurus) tidak terhalang gedung.
+    // Yang diuji di langkah ini adalah kontrol SETELAH dialog pedagang ditutup, bukan navigasi autopilot.
+    const v = vs.find((x) => x.id === 'V03') ?? vs.filter((x) => x.y < 1).sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0];
     await A.goTo(v.x, v.z + 1.8, 'pedagang');
     if ((await A.edu()).prompt !== 'pedagang') throw new Error(`tidak sampai pedagang ${v.id}`);
     await A.page.evaluate(() => window.__eduDebug.action());
