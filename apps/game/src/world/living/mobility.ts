@@ -20,7 +20,7 @@ import { vendorDialog, worldGateDialog, riftTransition, dialogOpen } from './mis
 import { engineSound, sfxLiving } from '../audio.js';
 import { h } from '../../ui/dom.js';
 import { formatRp } from '@eduverse/shared';
-import { openBag, type WalletStore, type BuyResult, type UseResult } from './inventory.js';
+import { openBag, type WalletStore, type BuyResult, type UseResult, type GiveOptions } from './inventory.js';
 
 type Fail = { ok: false; error: string };
 export interface MobilityHost {
@@ -38,6 +38,8 @@ export interface MobilityHost {
   wallet: WalletStore;
   buy(vendorId: string, itemId: string, qty: number): Promise<BuyResult>;
   useItem(itemId: string): Promise<UseResult>;
+  /** Memberi barang ke teman di dekat (null = tidak tersedia). */
+  giving: GiveOptions | null;
 }
 
 export interface MobilityPrompt {
@@ -356,6 +358,7 @@ export class Mobility {
         this.stats.itemsUsed++;
       },
       () => this.host.setBusy(false),
+      this.host.giving,
     );
   }
 

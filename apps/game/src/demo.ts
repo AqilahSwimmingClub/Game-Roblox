@@ -180,6 +180,8 @@ const demoHost: MobilityHost = {
     wallet.set({ saldo: chk.sisa, tas });
     return { ok: true, total: chk.total, sisa: chk.sisa, saldo: wallet.saldo, tas: wallet.tas };
   },
+  // Mode Demo tidak punya pemain lain → memberi barang dijelaskan dengan jujur
+  giving: { friends: () => [], give: async () => ({ ok: false, error: 'Tidak ada teman di Mode Demo.' }), unavailable: 'Mode Demo tidak punya pemain lain. Memberi barang ke teman tersedia di mode kelas (bermain bersama dengan kode kelas).' },
   async useItem(itemId) {
     const it = CATALOG[itemId];
     if (!it || !(wallet.tas[itemId]! > 0)) return { ok: false, error: 'Barang ini tidak ada di tasmu.' };

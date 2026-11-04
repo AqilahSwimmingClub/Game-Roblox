@@ -216,6 +216,14 @@ export class RemotePlayers {
     return [...this.map.values()].map((r) => ({ nama: r.nama, mode: r.mode, vehicleVisible: !!r.vehicle, jetpackVisible: !!r.jet, x: Math.round(r.pos.x), y: Math.round(r.pos.y), z: Math.round(r.pos.z) }));
   }
 
+  /** Pemain lain dalam radius r (untuk memberi barang). */
+  near(x: number, z: number, r: number): { id: string; nama: string; absen: number; d: number }[] {
+    return [...this.map.values()]
+      .map((p) => ({ id: p.id, nama: p.nama, absen: p.absen, d: Math.hypot(p.pos.x - x, p.pos.z - z) }))
+      .filter((p) => p.d <= r)
+      .sort((a, b) => a.d - b.d);
+  }
+
   positions(): { x: number; z: number }[] {
     return [...this.map.values()].map((r) => ({ x: r.pos.x, z: r.pos.z }));
   }

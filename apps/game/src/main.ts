@@ -5,7 +5,7 @@
  */
 import './ui/styles.css';
 import * as THREE from 'three';
-import { EV, LIMITS, WORLDS, buildKota, buildLobby, DEFAULT_AVATAR, type WalletMsg, type VehicleStateMsg, type Vendor, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
+import { EV, LIMITS, WORLDS, SHOP, CATALOG, buildKota, buildLobby, DEFAULT_AVATAR, type WalletMsg, type VehicleStateMsg, type Vendor, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
 import { Engine } from './engine/engine.js';
 import { Input } from './engine/input.js';
 import { FollowCamera } from './engine/camera.js';
@@ -210,6 +210,15 @@ const mobilityHost: MobilityHost = {
     if (r.ok) wallet.set(r);
     return r;
   },
+  giving: {
+    // jarak sedikit lebih kecil dari batas server (6 m) karena posisi pemain lain diinterpolasi
+    friends: () => (player ? remote.near(player.body.x, player.body.z, SHOP.jarakBeri - 0.5) : []),
+    give: async (toId, itemId, qty) => {
+      const r = await net.give(toId, itemId, qty);
+      if (r.ok) wallet.set(r);
+      return r;
+    },
+  },
   enterVehicle: (id) => net.enterVehicle(id),
   exitVehicle: (p) => net.exitVehicle(p),
   setJetpack: (on, st) => net.setJetpack(on, st),
@@ -328,6 +337,14 @@ net.on<LeaderboardRow[]>(EV.leaderboard, (rows) => hud.setLeaderboard(rows));
 net.on<{ text: string; kind?: string }>(EV.notify, (m) => notify(m.text, m.kind ?? 'info'));
 net.on<VehicleStateMsg[]>(EV.vehicles, (list) => stage?.living?.parked.setStates(list));
 net.on<WalletMsg>(EV.wallet, (w) => wallet.set(w));
+net.on<{ dari: string; itemId: string; qty: number }>(EV.gift, (g) => {
+  const it = CATALOG[g.itemId];
+  if (!it) return;
+  giftsReceived++;
+  notify(`🎁 ${g.dari} memberimu ${it.ikon} ${it.nama} ×${g.qty}! Ucapkan terima kasih ya.`, 'sukses');
+  if (player) effects.sparkle(new THREE.Vector3(player.body.x, player.body.y + 2, player.body.z));
+});
+let giftsReceived = 0;
 net.on<{ x: number; y: number; z: number; reason: string; mode?: string }>(EV.teleport, (m) => {
   riding = false;
   if (mobility?.driving && m.mode !== 'jalan' && m.reason === 'koreksi') {
@@ -540,7 +557,8 @@ if (debug) {
     action: () => void doAction(),
     control: (c: Record<string, boolean>) => mobility?.setControl(c),
     /** Uji keamanan (mode ?debug=1): kirim permintaan mentah — server tetap memvalidasi semuanya. */
-    raw: { enterVehicle: (id: string) => net.enterVehicle(id), useRift: (id: string) => net.useRift(id), setJetpack: (on: boolean, st?: string) => net.setJetpack(on, st), buy: (v: string, i: string, q: number) => mobilityHost.buy(v, i, q), useItem: (i: string) => mobilityHost.useItem(i) },
+    raw: { enterVehicle: (id: string) => net.enterVehicle(id), useRift: (id: string) => net.useRift(id), setJetpack: (on: boolean, st?: string) => net.setJetpack(on, st), buy: (v: string, i: string, q: number) => mobilityHost.buy(v, i, q), useItem: (i: string) => mobilityHost.useItem(i), give: (to: string, i: string, q: number) => mobilityHost.giving!.give(to, i, q) },
+    friends: (r = 50) => (player ? remote.near(player.body.x, player.body.z, r) : []),
     vendors: () => stage?.living?.layout.vendors.map((v) => ({ id: v.id, x: v.x, z: v.z })) ?? [],
   };
 }
@@ -564,7 +582,9 @@ function exposeState() {
     fps: engine.fps,
     mobility: mobility?.snapshot() ?? null,
     traffic: stage?.living?.traffic.snapshot() ?? null,
+    myId: net.socket.id ?? null,
     remoteModes: remote.modes(),
+    giftsReceived,
     vehicles: stage?.living?.parked.all().map((v) => ({ id: v.id, driver: v.driver ? 'ya' : null, x: Math.round(v.x), z: Math.round(v.z) })) ?? [],
   };
 }

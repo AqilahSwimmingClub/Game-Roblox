@@ -170,6 +170,10 @@ export class NetClient {
     return this.call<{ ok: true; itemId: string } & WalletMsg>(EV.useItem, { itemId });
   }
 
+  give(toId: string, itemId: string, qty: number) {
+    return this.call<{ ok: true; ke: string; itemId: string; qty: number } & WalletMsg>(EV.give, { toId, itemId, qty });
+  }
+
   useRift(riftId: string) {
     return this.call<{ ok: true; target: { x: number; y: number; z: number; ry: number }; nama: string }>(EV.riftUse, { riftId });
   }
