@@ -160,14 +160,22 @@ export function pilihAvatar(current: AvatarConfig, nameTag: string, save: (cfg: 
       cfg.kulit = Math.floor(Math.random() * AVATAR_OPTIONS.kulit.length);
       pick(Math.floor(Math.random() * CHARACTERS.length));
     });
+    const saveError = h('p', { role: 'alert', style: 'color:#C62828;font-weight:800;margin:0;min-height:1em' });
     const siap = btn('SIAP!', 'hijau', async () => {
       siap.disabled = true;
-      await save(cfg);
-      alive = false;
-      avatar.dispose();
-      renderer.dispose();
-      scr.remove();
-      resolve(cfg);
+      saveError.textContent = '';
+      try {
+        await save(cfg);
+        alive = false;
+        avatar.dispose();
+        renderer.dispose();
+        scr.remove();
+        resolve(cfg);
+      } catch (err) {
+        // Jaringan dapat terputus saat siswa memilih karakter; jangan kunci tombol SIAP.
+        saveError.textContent = err instanceof Error ? err.message : 'Gagal menyimpan karakter. Coba lagi.';
+        siap.disabled = false;
+      }
     });
     siap.style.minWidth = '160px';
     const scr = ui.show(
@@ -178,7 +186,7 @@ export function pilihAvatar(current: AvatarConfig, nameTag: string, save: (cfg: 
           'div',
           { class: 'avatar-layout' },
           h('div', { class: 'avatar-preview' }, canvas, h('div', { class: 'nametag chip', style: 'background:#fff;font-size:16px' }, nameTag), title),
-          h('div', { class: 'panel avatar-options' }, h('h2', { style: 'font-size:26px' }, 'Pilih Karaktermu'), tabsEl, grid, skinRow, h('div', { class: 'row', style: 'justify-content:flex-end' }, acak, siap)),
+          h('div', { class: 'panel avatar-options' }, h('h2', { style: 'font-size:26px' }, 'Pilih Karaktermu'), tabsEl, grid, skinRow, saveError, h('div', { class: 'row', style: 'justify-content:flex-end' }, acak, siap)),
         ),
       ),
     );
