@@ -172,15 +172,25 @@ export function attachSockets(io: Server, registry: RuntimeRegistry, opts: { tru
         done({ ok: false, error: 'Gagal membeli. Coba lagi.' });
       }
     });
-    socket.on(EV.give, async (raw: unknown, ack: unknown) => {
-      const done = ackOf(ack);
-      if (!rt) return done({ ok: false, error: 'Belum bergabung.' });
-      try {
-        done(await rt.give(socket, raw));
-      } catch (e) {
-        console.error('[give]', e);
-        done({ ok: false, error: 'Gagal memberi barang. Coba lagi.' });
-      }
+    const offerRoute = (ev: string, fn: (r: SessionRuntime, raw: unknown) => Promise<unknown> | unknown) =>
+      socket.on(ev, async (raw: unknown, ack: unknown) => {
+        const done = ackOf(ack);
+        if (!rt) return done({ ok: false, error: 'Belum bergabung.' });
+        try {
+          done(await fn(rt, raw));
+        } catch (e) {
+          console.error(`[${ev}]`, e);
+          done({ ok: false, error: 'Gagal memproses permintaan. Barangmu aman — coba lagi.' });
+        }
+      });
+    offerRoute(EV.offerCreate, (r, raw) => r.createOffer(socket, raw));
+    offerRoute(EV.offerRespond, (r, raw) => r.respondOffer(socket, raw));
+    offerRoute(EV.offerCancel, (r, raw) => r.cancelOffer(socket, raw));
+    offerRoute(EV.offerPeek, (r, raw) => r.peekBag(socket, raw));
+    // klien lama: "beri" kini membuat PERMINTAAN hadiah (perlu TERIMA dari penerima)
+    offerRoute(EV.give, (r, raw) => {
+      const m = (raw ?? {}) as { toId?: unknown; itemId?: unknown; qty?: unknown };
+      return r.createOffer(socket, { kind: 'hadiah', toId: m.toId, give: { itemId: m.itemId, qty: m.qty } });
     });
     socket.on(EV.useItem, async (raw: unknown, ack: unknown) => {
       const done = ackOf(ack);

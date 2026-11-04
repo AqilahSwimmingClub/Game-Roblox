@@ -20,6 +20,10 @@ export interface SessionSettings {
   density: number; // 0.3 | 0.5 | 0.8
   requireApproval: boolean; // identitas siswa harus disetujui guru
   showLeaderboard: boolean;
+  /** Siswa boleh memberi barang ke teman (dengan persetujuan penerima). Bisa diubah guru saat sesi berjalan. */
+  allowGifts: boolean;
+  /** Siswa boleh bertukar barang dua arah (persetujuan kedua siswa). Bisa diubah guru saat sesi berjalan. */
+  allowTrades: boolean;
 }
 
 export const DEFAULT_SETTINGS: SessionSettings = {
@@ -36,6 +40,8 @@ export const DEFAULT_SETTINGS: SessionSettings = {
   density: 0.5,
   requireApproval: true, // guru menyetujui setiap siswa yang masuk (alur kelas resmi)
   showLeaderboard: true,
+  allowGifts: true,
+  allowTrades: true,
 };
 
 /** Batas server (anti curang & stabilitas). */
@@ -132,6 +138,8 @@ export interface SessionPublicState {
   remainingMs: number | null; // saat jeda
   serverNow: number;
   showLeaderboard: boolean;
+  allowGifts: boolean;
+  allowTrades: boolean;
   progressTarget: number | null;
 }
 
@@ -193,7 +201,11 @@ export const EV = {
   riftUse: 'rift:use', // {riftId} → ack {ok, target, nama}
   buy: 'shop:buy', // {vendorId, itemId, qty} → ack {ok, saldo, tas, total, sisa} (dinilai server)
   useItem: 'item:use', // {itemId} → ack {ok, saldo, tas, efek}
-  give: 'item:give', // {toId, itemId, qty} → ack {ok, saldo, tas, ke} (dinilai server)
+  give: 'item:give', // (lama) dipertahankan untuk kompatibilitas: kini membuat PERMINTAAN hadiah
+  offerCreate: 'offer:create', // {kind:'hadiah'|'tukar', toId, give:{itemId,qty}, want?:{itemId,qty}} → ack {ok, offer, saldo, tas}
+  offerRespond: 'offer:respond', // {id, accept} → ack {ok, offer, saldo, tas}
+  offerCancel: 'offer:cancel', // {id} → ack {ok, offer, saldo, tas}
+  offerPeek: 'offer:peek', // {toId} → ack {ok, nama, tas} (isi tas teman di dekat, untuk memilih barang tukar)
   // server → klien siswa
   session: 'session:state',
   roster: 'roster',
@@ -209,7 +221,8 @@ export const EV = {
   teleport: 'teleport',
   vehicles: 'vehicles:state',
   wallet: 'wallet:update', // WalletMsg {saldo, tas} — setelah jawaban benar, pembelian, pemakaian, hadiah
-  gift: 'item:gift', // {dari, itemId, qty, x, y, z} — kamu menerima barang dari teman // VehicleStateMsg[] (penuh) saat masuk dunia & setiap perubahan
+  gift: 'item:gift', // {dari, itemId, qty, x, y, z} — barang dari teman sudah MASUK ke tasmu (setelah kamu TERIMA)
+  offers: 'offer:list', // ItemOffer[] — permintaan yang masih menunggu & yang baru berubah status (untukmu) // VehicleStateMsg[] (penuh) saat masuk dunia & setiap perubahan
   ended: 'game:ended',
   podium: 'podium:show',
   kicked: 'kicked',

@@ -41,6 +41,8 @@ const settingsSchema = z
     density: z.number().min(0.2).max(1),
     requireApproval: z.boolean(),
     showLeaderboard: z.boolean(),
+    allowGifts: z.boolean(),
+    allowTrades: z.boolean(),
   })
   .partial();
 
@@ -245,7 +247,7 @@ export function apiRouter(registry: RuntimeRegistry) {
       if (!rt) return;
       const b = z.object({ title: z.string().min(2).max(100).optional(), className: z.string().min(1).max(40).optional(), settings: settingsSchema.optional() }).safeParse(req.body);
       if (!b.success) return res.status(400).json({ error: 'Pengaturan tidak valid.' });
-      if (rt.status !== 'menunggu' && b.data.settings && Object.keys(b.data.settings).some((k) => !['showLeaderboard', 'secondChance', 'allowRepeat'].includes(k)))
+      if (rt.status !== 'menunggu' && b.data.settings && Object.keys(b.data.settings).some((k) => !['showLeaderboard', 'secondChance', 'allowRepeat', 'allowGifts', 'allowTrades'].includes(k)))
         return res.status(409).json({ error: 'Sebagian pengaturan hanya bisa diubah sebelum permainan dimulai.' });
       const settings = { ...rt.settings, ...(b.data.settings ?? {}) };
       settings.worlds = settings.worlds.filter((w) => ACTIVE_WORLDS.has(w));
@@ -253,6 +255,16 @@ export function apiRouter(registry: RuntimeRegistry) {
       await query('UPDATE sessions SET settings = $2, title = COALESCE($3, title), class_name = COALESCE($4, class_name) WHERE id = $1', [rt.id, JSON.stringify(settings), b.data.title ?? null, b.data.className ?? null]);
       await rt.updateSettings(settings, b.data.title, b.data.className);
       res.json({ ok: true, settings });
+    }),
+  );
+
+  // Riwayat hadiah & tukar barang (pemberi, penerima, barang, jumlah, waktu, status)
+  r.get(
+    '/sessions/:id/offers',
+    wrap(async (req, res) => {
+      const rt = await ownedRuntime(req, res);
+      if (!rt) return;
+      res.json({ offers: await rt.offerHistory() });
     }),
   );
 

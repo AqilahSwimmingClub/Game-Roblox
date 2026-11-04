@@ -135,3 +135,76 @@ export function checkGive(fromBag: Bag, toBag: Bag, itemId: unknown, qty: unknow
   if (bagCount(toBag) + qty > SHOP.maksIsiTas) return { ok: false, error: `Tas ${toName} sudah penuh.` };
   return { ok: true, item };
 }
+
+// ───────────── Permintaan hadiah & tukar barang (perlu persetujuan) ─────────────
+
+export type OfferKind = 'hadiah' | 'tukar';
+/** menunggu → diterima | ditolak | dibatalkan | kedaluwarsa (status akhir tidak bisa berubah lagi). */
+export type OfferStatus = 'menunggu' | 'diterima' | 'ditolak' | 'dibatalkan' | 'kedaluwarsa';
+
+export interface ItemLine {
+  itemId: string;
+  qty: number;
+}
+
+export interface ItemOffer {
+  id: string;
+  kind: OfferKind;
+  status: OfferStatus;
+  dari: { absen: number; nama: string; karakter: number };
+  ke: { absen: number; nama: string; karakter: number };
+  give: ItemLine; // barang pemberi (sudah DITAHAN/dipisahkan dari tas pemberi sejak permintaan dibuat)
+  want: ItemLine | null; // tukar: barang yang diminta dari penerima
+  createdAt: number;
+  expiresAt: number;
+  resolvedAt: number | null;
+  reason: string | null; // alasan dibatalkan/ditolak (mis. "Fitur dinonaktifkan guru")
+}
+
+export const OFFER = {
+  ttlMs: 60_000, // permintaan kedaluwarsa setelah 60 detik bila tidak dijawab
+  maxPendingFromGiver: 2, // permintaan menunggu dari satu siswa sekaligus
+  pairCooldownMs: 20_000, // setelah ditolak/kedaluwarsa, jeda sebelum mengirim lagi ke teman yang sama
+} as const;
+
+export const OFFER_STATUS_LABEL: Record<OfferStatus, string> = {
+  menunggu: 'Menunggu jawaban',
+  diterima: 'Diterima',
+  ditolak: 'Ditolak',
+  dibatalkan: 'Dibatalkan',
+  kedaluwarsa: 'Kedaluwarsa',
+};
+
+function line(raw: unknown, max: number): ItemLine | string {
+  const r = (raw ?? {}) as { itemId?: unknown; qty?: unknown };
+  const it = typeof r.itemId === 'string' ? CATALOG[r.itemId] : undefined;
+  if (!it) return 'Barang tidak dikenal.';
+  if (typeof r.qty !== 'number' || !Number.isInteger(r.qty) || r.qty < 1 || r.qty > max) return `Jumlah barang 1–${max}.`;
+  return { itemId: it.id, qty: r.qty };
+}
+
+/** Periksa isi permintaan (bukan izin/jarak — itu di server). Uang tidak pernah bisa menjadi bagian permintaan. */
+export function parseOffer(raw: unknown, fromBag: Bag): { ok: true; kind: OfferKind; give: ItemLine; want: ItemLine | null } | { ok: false; error: string } {
+  const r = (raw ?? {}) as { kind?: unknown; give?: unknown; want?: unknown };
+  const kind = r.kind === 'tukar' ? 'tukar' : r.kind === 'hadiah' || r.kind === undefined ? 'hadiah' : null;
+  if (!kind) return { ok: false, error: 'Jenis permintaan tidak dikenal.' };
+  const give = line(r.give, SHOP.maksBeriSekali);
+  if (typeof give === 'string') return { ok: false, error: give };
+  if ((fromBag[give.itemId] ?? 0) < give.qty) return { ok: false, error: `${CATALOG[give.itemId]!.nama} di tasmu tidak cukup.` };
+  let want: ItemLine | null = null;
+  if (kind === 'tukar') {
+    const w = line(r.want, SHOP.maksBeriSekali);
+    if (typeof w === 'string') return { ok: false, error: `Barang yang diminta: ${w}` };
+    if (w.itemId === give.itemId) return { ok: false, error: 'Tukar dengan barang yang berbeda.' };
+    want = w;
+  }
+  return { ok: true, kind, give, want };
+}
+
+/** Bisakah penerima MENERIMA permintaan ini? (stok barang yang diminta + kapasitas tas setelah tukar) */
+export function canAccept(offer: Pick<ItemOffer, 'give' | 'want'>, toBag: Bag): { ok: true } | { ok: false; error: string } {
+  const wantQty = offer.want?.qty ?? 0;
+  if (offer.want && (toBag[offer.want.itemId] ?? 0) < offer.want.qty) return { ok: false, error: `Kamu tidak punya ${offer.want.qty} ${CATALOG[offer.want.itemId]?.nama ?? offer.want.itemId} untuk ditukar.` };
+  if (bagCount(toBag) - wantQty + offer.give.qty > SHOP.maksIsiTas) return { ok: false, error: 'Tasmu penuh. Pakai atau beri dulu beberapa barang.' };
+  return { ok: true };
+}
