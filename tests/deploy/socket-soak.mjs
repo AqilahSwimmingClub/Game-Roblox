@@ -30,6 +30,24 @@ try {
 }
 log(`- /api/health → ${out.health.status} dalam ${out.health.ms} ms ${out.health.error ?? out.health.body ?? ''}`);
 
+// Versi backend: pingInterval/pingTimeout dari paket "open" Engine.IO membuktikan heartbeat yang SEDANG berjalan
+// (kode PR #4: 20000/25000; versi lama: 10000/15000). /api/health versi baru juga memuat build.commit & fitur.
+try {
+  const r = await fetch(`${BACKEND}/socket.io/?EIO=4&transport=polling`, { signal: AbortSignal.timeout(20000) });
+  const txt = await r.text();
+  const open = JSON.parse(txt.slice(txt.indexOf('{')));
+  let build = null;
+  try {
+    build = JSON.parse(out.health.body ?? '{}').build ?? null;
+  } catch {
+    /* body terpotong */
+  }
+  out.versi = { pingInterval: open.pingInterval, pingTimeout: open.pingTimeout, build, terbaru: open.pingInterval === 20000 && open.pingTimeout === 25000 };
+  log(`- Versi backend: heartbeat ${open.pingInterval}/${open.pingTimeout} ms → ${out.versi.terbaru ? 'SUDAH kode PR #4 (20000/25000)' : 'MASIH versi lama (bukan 20000/25000)'}; build ${build ? JSON.stringify(build) : '(belum ada info build → kode sebelum PR #4 terbaru)'}`);
+} catch (e) {
+  log(`- Versi backend: gagal dibaca (${e?.message ?? e})`);
+}
+
 for (const origin of ORIGINS) {
   try {
     const r = await fetch(`${BACKEND}/socket.io/?EIO=4&transport=polling`, { headers: { origin }, signal: AbortSignal.timeout(20000) });

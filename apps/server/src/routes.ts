@@ -93,7 +93,13 @@ export function apiRouter(registry: RuntimeRegistry) {
     fileFilter: (_req, file, cb) => cb(null, /\.(xlsx|docx)$/i.test(file.originalname)),
   });
 
-  r.get('/health', (_req, res) => res.json({ ok: true, time: Date.now() }));
+  // Versi kode yang sedang berjalan (Railway/Render mengisi SHA commit otomatis) — untuk memastikan backend sudah terbaru.
+  const build = {
+    commit: (process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.RENDER_GIT_COMMIT ?? process.env.GIT_SHA ?? '').slice(0, 7) || null,
+    branch: process.env.RAILWAY_GIT_BRANCH ?? process.env.RENDER_GIT_BRANCH ?? null,
+    fitur: ['heartbeat-20-25', 'rejoin-pulih', 'podium-sinkron'],
+  };
+  r.get('/health', (_req, res) => res.json({ ok: true, time: Date.now(), build }));
 
   // ───────── Publik (siswa) ─────────
   r.get(
