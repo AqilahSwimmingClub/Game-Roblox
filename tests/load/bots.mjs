@@ -586,6 +586,9 @@ async function runLevel(n) {
 
 async function runSweep() {
   console.log(`EDUVERSE uji beban → ${BASE} · tingkat ${LEVELS.join(', ')} · durasi ${DURATION / 1000} dtk`);
+  // Login guru (sebelum mode kelas ditambahkan, login ini ada di tingkat atas berkas; mode sweep tetap membutuhkannya)
+  const login = await http('/auth/login', { email: EMAIL, password: PASS });
+  bearer = login?.token ?? '';
   const out = [];
   for (const n of LEVELS) {
     process.stdout.write(`\n▶ ${n} pemain… `);
