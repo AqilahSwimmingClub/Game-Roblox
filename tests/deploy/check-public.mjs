@@ -28,6 +28,17 @@ async function get(url, opts = {}) {
 
 const STRICT = process.env.STRICT !== 'false';
 let webOk = true;
+// Vercel Deployment Protection / alias tidak ada → Vercel menyajikan halaman HTML miliknya (bukan EDUVERSE)
+const probe = await get(WEB + '/');
+const vercelWall = probe.status === 200 && !probe.body.includes('EDUVERSE') && /vercel\.com|data-dpl-id|_vercel_sso/i.test(probe.body);
+if (vercelWall) {
+  add('Akses publik', false, 'Vercel menampilkan halaman miliknya (Deployment Protection aktif atau alias tidak ada) — buka Vercel → Settings → Deployment Protection, atau pakai alamat production', 'peringatan');
+  fs.writeFileSync('deploy-check.json', JSON.stringify(out, null, 2));
+  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, ['## Uji Deployment Publik', '', `Frontend: ${WEB}`, '', '| | Pemeriksaan | Hasil |', '|---|---|---|', ...summary, ''].join('\n') + '\n');
+  if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, 'web_ok=false\ndemo_ok=false\nbackend_ok=false\n');
+  console.log(`::warning::${WEB} tidak bisa diakses publik (dilindungi Vercel / alias tidak ada) — pengaturan akun Vercel`);
+  process.exit(0);
+}
 let demoOk = false;
 for (const [path, must] of [
   ['/', 'EDUVERSE'],
@@ -43,10 +54,10 @@ for (const [path, must] of [
 
 // Alamat backend yang dipakai frontend
 const cfg = await get(WEB + '/eduverse-config.js');
-const m = cfg.body.match(/https?:\/\/[^"'\s]+/);
+const m = cfg.body.includes('EDUVERSE_CONFIG') ? cfg.body.match(/https?:\/\/[^"'\s]+/) : null;
 const server = m ? m[0].replace(/\/$/, '') : '';
-add('eduverse-config.js', cfg.status === 200 && !!server, cfg.status === 200 ? `backend = ${server || '(kosong: satu domain)'}` : `HTTP ${cfg.status}`);
-if (cfg.status !== 200) webOk = false;
+add('eduverse-config.js', cfg.status === 200 && cfg.body.includes('EDUVERSE_CONFIG'), cfg.status === 200 ? `backend = ${server || '(kosong: satu domain)'}` : `HTTP ${cfg.status}`);
+if (cfg.status !== 200 || !cfg.body.includes('EDUVERSE_CONFIG')) webOk = false;
 
 let backendOk = false;
 if (server) {
