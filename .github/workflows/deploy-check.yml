@@ -34,7 +34,7 @@ jobs:
             strict: 'true'
           # Preview perbaikan HUD/kontrol/musik (PR #4) — diperiksa & Mode Demo dimainkan
           - nama: preview perbaikan (PR 4)
-            url: https://eduverse-web-preview-git-cl-235940-aqilahswimmingclubs-projects.vercel.app
+            url: https://eduverse-web-preview-git-fi-ffa278-aqilahswimmingclubs-projects.vercel.app
             strict: 'true'
           # Production — hanya dilaporkan (sengaja belum diganti sampai alur lengkap siap)
           - nama: production
