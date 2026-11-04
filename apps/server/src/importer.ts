@@ -28,7 +28,8 @@ const TYPE_MAP: Record<string, QuestionType> = {
 };
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E'];
-const MAX_ROWS = 2000;
+// Batas pengaman per file (bukan batas jumlah soal di bank). Penyimpanan dikirim bertahap per 500 soal.
+const MAX_ROWS = 50_000;
 
 function clean(v: unknown): string {
   if (v === null || v === undefined) return '';

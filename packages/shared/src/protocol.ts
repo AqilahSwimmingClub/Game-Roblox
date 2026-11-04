@@ -20,6 +20,12 @@ export interface SessionSettings {
   density: number; // 0.3 | 0.5 | 0.8
   requireApproval: boolean; // identitas siswa harus disetujui guru
   showLeaderboard: boolean;
+  /** Sumber soal: 'guru' (bawaan sesi resmi), 'bawaan', atau 'gabungan'. */
+  questionSource: 'guru' | 'bawaan' | 'gabungan';
+  /** Tingkat kesulitan yang dipakai (kosong = semua). */
+  difficulties: ('mudah' | 'sedang' | 'sulit')[];
+  /** Pilih N soal acak dari bank saat sesi dibuat (null = semua soal yang cocok). */
+  randomCount: number | null;
   /** Siswa boleh memberi barang ke teman (dengan persetujuan penerima). Bisa diubah guru saat sesi berjalan. */
   allowGifts: boolean;
   /** Siswa boleh bertukar barang dua arah (persetujuan kedua siswa). Bisa diubah guru saat sesi berjalan. */
@@ -40,6 +46,9 @@ export const DEFAULT_SETTINGS: SessionSettings = {
   density: 0.5,
   requireApproval: true, // guru menyetujui setiap siswa yang masuk (alur kelas resmi)
   showLeaderboard: true,
+  questionSource: 'guru',
+  difficulties: [],
+  randomCount: null,
   allowGifts: true,
   allowTrades: true,
 };

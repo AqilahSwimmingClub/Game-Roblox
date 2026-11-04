@@ -17,6 +17,7 @@ import {
   buildLobby,
   zoneAt,
   KOTA_ZONES,
+  QUESTION_SOURCE_LABEL,
   checkAnswer,
   parseAnswer,
   computeScore,
@@ -1170,10 +1171,8 @@ export class SessionRuntime {
       if (!wp.poolExhausted) {
         if (!wp.poolLoading) {
           wp.poolLoading = loadQuestionPage(this.teacherId, this.id, {
-            subjects: this.settings.subjects,
-            grade: this.settings.grade,
+            ...this.poolFilter(),
             world: w,
-            ids: this.questionIds,
             limit: POOL_PAGE,
             offset: wp.pool.length,
           }).then((page) => {
@@ -1249,6 +1248,7 @@ export class SessionRuntime {
       location: zone?.nama ?? pd.zone,
       object: pd.pointId,
       surprise: pd.surprise,
+      ...(q.image ? { image: q.image } : {}),
     };
   }
 
@@ -1308,9 +1308,23 @@ export class SessionRuntime {
     }
     // Persistensi: setiap percobaan dicatat; skor siswa diperbarui atomik
     await query(
-      `INSERT INTO answers (session_id, roster_id, question_id, point_id, world, zone, answer, correct, points, attempt, elapsed_ms)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [this.id, s.rosterId, q.id, pd.pointId, pd.world, pd.zone, JSON.stringify(mapped), correct, points, pd.attempt === 2 && !finalAttempt ? 1 : pd.attempt, Math.min(elapsed, 2_000_000_000)],
+      `INSERT INTO answers (session_id, roster_id, question_id, point_id, world, zone, answer, correct, points, attempt, elapsed_ms, question_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [
+        this.id,
+        s.rosterId,
+        q.id,
+        pd.pointId,
+        pd.world,
+        pd.zone,
+        JSON.stringify(mapped),
+        correct,
+        points,
+        pd.attempt === 2 && !finalAttempt ? 1 : pd.attempt,
+        Math.min(elapsed, 2_000_000_000),
+        // cuplikan soal saat dijawab: riwayat sesi tidak berubah walau soal di bank diedit/dihapus kemudian
+        JSON.stringify({ subject: q.subject, topic: q.topic, prompt: q.prompt, type: q.type, options: q.options, right: q.right, key: q.key, explanation: q.explanation, source: q.source ?? 'guru' }),
+      ],
     );
     if (finalAttempt) {
       await query(
@@ -1381,12 +1395,24 @@ export class SessionRuntime {
 
   // ───────────────────────────── kendali guru ─────────────────────────────
 
+  /** Saringan soal sesi ini: sumber (guru/bawaan/gabungan), mapel, kelas, kesulitan, soal terpilih. */
+  poolFilter() {
+    return {
+      subjects: this.settings.subjects,
+      grade: this.settings.grade,
+      source: this.settings.questionSource ?? 'guru',
+      difficulties: this.settings.difficulties ?? [],
+      ids: this.questionIds,
+    };
+  }
+
   async start(): Promise<string | null> {
     if (this.status !== 'menunggu') return 'Sesi sudah dimulai.';
     // Pastikan ada soal untuk setiap dunia aktif
     for (const w of this.settings.worlds.filter((x) => AVAILABLE_WORLDS.has(x))) {
-      const page = await loadQuestionPage(this.teacherId, this.id, { subjects: this.settings.subjects, grade: this.settings.grade, world: w, ids: this.questionIds, limit: 1, offset: 0 });
-      if (!page.length) return `Belum ada soal yang cocok untuk Dunia ${w}. Tambahkan soal atau ubah filter mapel/kelas.`;
+      const page = await loadQuestionPage(this.teacherId, this.id, { ...this.poolFilter(), world: w, limit: 1, offset: 0 });
+      if (!page.length)
+        return `Bank soal untuk sesi ini kosong (sumber: ${QUESTION_SOURCE_LABEL[this.settings.questionSource ?? 'guru']}, Dunia ${w}). Tambahkan/impor soal Anda atau ubah sumber soal, mapel, kelas, atau tingkat kesulitan. Soal contoh tidak dipakai diam-diam.`;
     }
     this.status = 'hitung';
     this.broadcastState();
@@ -1683,7 +1709,7 @@ export class SessionRuntime {
     if (title) this.title = title;
     if (className) this.className = className;
     // pool & titik soal dibangun ulang hanya bila pengaturan soal/dunia berubah (bukan saat guru menyalakan/mematikan hadiah)
-    const soalKeys: (keyof SessionSettings)[] = ['worlds', 'subjects', 'grade', 'density', 'questionMode', 'questionCount', 'allowRepeat'];
+    const soalKeys: (keyof SessionSettings)[] = ['worlds', 'subjects', 'grade', 'density', 'questionMode', 'questionCount', 'allowRepeat', 'questionSource', 'difficulties'];
     if (soalKeys.some((k) => JSON.stringify(prev[k]) !== JSON.stringify(this.settings[k]))) this.worlds.clear();
     if (prev.allowGifts !== false && this.settings.allowGifts === false) {
       await this.cancelOffersOf('hadiah', 'Fitur memberi barang dinonaktifkan guru.');

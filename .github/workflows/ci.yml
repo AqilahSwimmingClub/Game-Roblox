@@ -105,6 +105,8 @@ jobs:
         run: node tests/integration/offers.mjs
         env:
           OFFER_TTL_MS: '20000'
+      - name: Bank Soal Guru (sumber soal, impor Excel/Word, duplikat, pilih/acak, gambar, riwayat)
+        run: node tests/integration/question-bank.mjs
       - run: node tests/security/abuse.mjs
       - run: node tests/load/bots.mjs --players 50,100 --duration 20
         env:

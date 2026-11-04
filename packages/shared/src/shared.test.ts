@@ -121,7 +121,7 @@ describe('soal', () => {
       learningOutcome: '',
       type: 'pg',
       prompt: 'Soal?',
-      options: ['a', 'A'],
+      options: ['a b', ' a  b '],
       right: [],
       key: { type: 'pg', index: 5 },
       explanation: '',
@@ -130,6 +130,9 @@ describe('soal', () => {
       world: 'semua',
     });
     expect(errs).toContain('Ada opsi kembar');
+    // soal huruf kapital: opsi yang hanya beda kapital itu sah
+    const kapital = validateQuestion({ subject: 'Bahasa Indonesia', grade: 5, phase: 'C', topic: 'Huruf kapital', learningOutcome: '', type: 'pg', prompt: 'Penulisan yang benar …', options: ['saya pergi.', 'Saya pergi.'], right: [], key: { type: 'pg', index: 1 }, explanation: '', difficulty: 'mudah', points: 100, world: 'semua' });
+    expect(kapital).toEqual([]);
     expect(errs).toContain('Kunci tidak cocok dengan opsi');
   });
   it('sidik jari sama untuk soal yang hanya beda spasi/kapital', () => {

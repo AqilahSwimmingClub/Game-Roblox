@@ -4,7 +4,7 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import multer from 'multer';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { DEFAULT_SETTINGS, SUBJECTS, WORLDS, questionFingerprint, type SessionSettings } from '@eduverse/shared';
+import { DEFAULT_SETTINGS, SUBJECTS, WORLDS, QUESTION_IMAGE_MAX, QUESTION_SOURCE_LABEL, questionFingerprint, type SessionSettings } from '@eduverse/shared';
 import { query } from './db/pool.js';
 import { config } from './config.js';
 import { hashPassword, verifyPassword, signTeacher, setAuthCookie, requireTeacher, teacherOf, COOKIE, revokeToken, tokenFrom } from './auth.js';
@@ -43,6 +43,9 @@ const settingsSchema = z
     showLeaderboard: z.boolean(),
     allowGifts: z.boolean(),
     allowTrades: z.boolean(),
+    questionSource: z.enum(['guru', 'bawaan', 'gabungan']),
+    difficulties: z.array(z.enum(['mudah', 'sedang', 'sulit'])).max(3),
+    randomCount: z.number().int().min(1).max(10000).nullable(),
   })
   .partial();
 
@@ -68,7 +71,14 @@ const questionSchema = z.object({
   difficulty: z.enum(['mudah', 'sedang', 'sulit']).default('sedang'),
   points: z.number().int(),
   world: z.enum(['semua', 'kota', 'hutan', 'laut', 'angkasa']).default('semua'),
+  image: z.string().max(QUESTION_IMAGE_MAX).nullable().optional(),
 });
+
+/** Saringan soal sesi dari pengaturan (+ soal terpilih). */
+function poolOf(settings: Partial<SessionSettings>, ids: string[] | null | undefined): repo.PoolFilter {
+  const st = { ...DEFAULT_SETTINGS, ...settings };
+  return { subjects: st.subjects, grade: st.grade, source: st.questionSource, difficulties: st.difficulties, ids: ids?.length ? ids : null };
+}
 
 const ACTIVE_WORLDS = new Set(WORLDS.filter((w) => w.tersedia).map((w) => w.id));
 
@@ -79,7 +89,7 @@ export function apiRouter(registry: RuntimeRegistry) {
   const publicLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: true, legacyHeaders: false });
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+    limits: { fileSize: 25 * 1024 * 1024, files: 1 },
     fileFilter: (_req, file, cb) => cb(null, /\.(xlsx|docx)$/i.test(file.originalname)),
   });
 
@@ -196,13 +206,23 @@ export function apiRouter(registry: RuntimeRegistry) {
       const settings: SessionSettings = { ...DEFAULT_SETTINGS, ...b.data.settings };
       settings.worlds = settings.worlds.filter((w) => ACTIVE_WORLDS.has(w));
       if (!settings.worlds.length) settings.worlds = ['kota'];
+      // Sumber soal mengikuti pilihan guru; bila kosong, beri tahu — jangan diam-diam memakai soal contoh.
+      let questionIds = b.data.questionIds?.length ? b.data.questionIds : null;
+      const pool = poolOf(settings, questionIds);
+      if (settings.randomCount && !questionIds) {
+        questionIds = await repo.randomIds(t.sub, pool, settings.randomCount);
+        pool.ids = questionIds;
+      }
+      const count = (await repo.poolCount(t.sub, pool)).total;
+      if (!count)
+        return res.status(400).json({ error: `Bank soal untuk pilihan ini kosong (sumber: ${QUESTION_SOURCE_LABEL[settings.questionSource]}). Tambahkan/impor soal Anda di Bank Soal atau ubah sumber, mapel, kelas, atau tingkat kesulitan.` });
       let id: string | null = null;
       let code = '';
       for (let i = 0; i < 8 && !id; i++) {
         code = newCode();
         const ins = await query<{ id: string }>(
           'INSERT INTO sessions (teacher_id, code, title, class_name, settings, question_ids) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (code) DO NOTHING RETURNING id',
-          [t.sub, code, b.data.title, b.data.className, JSON.stringify(settings), b.data.questionIds?.length ? b.data.questionIds : null],
+          [t.sub, code, b.data.title, b.data.className, JSON.stringify(settings), questionIds],
         );
         id = ins.rows[0]?.id ?? null;
       }
@@ -213,7 +233,7 @@ export function apiRouter(registry: RuntimeRegistry) {
         seen.add(s.absen);
         await query('INSERT INTO session_roster (session_id, absen, nickname, preset, approved) VALUES ($1,$2,$3,true,true)', [id, s.absen, s.nama.trim()]);
       }
-      res.json({ id, code, link: `${config.publicUrl}/?kode=${code}` });
+      res.json({ id, code, link: `${config.publicUrl}/?kode=${code}`, questionCount: count });
     }),
   );
 
@@ -373,6 +393,8 @@ export function apiRouter(registry: RuntimeRegistry) {
           subject: q.subject,
           grade: q.grade ? Number(q.grade) : undefined,
           type: q.type,
+          source: q.source === 'guru' || q.source === 'bawaan' ? q.source : undefined,
+          difficulty: q.difficulty,
           page: q.page ? Number(q.page) : 1,
           pageSize: q.pageSize ? Number(q.pageSize) : 25,
         }),
@@ -386,7 +408,9 @@ export function apiRouter(registry: RuntimeRegistry) {
       const t = teacherOf(res);
       const s = await query<{ subject: string; grade: number; n: number }>('SELECT subject, grade, count(*)::int n FROM questions WHERE teacher_id = $1 GROUP BY 1,2 ORDER BY 1,2', [t.sub]);
       const b = await query('SELECT id, filename, question_count, created_at FROM import_batches WHERE teacher_id = $1 ORDER BY created_at DESC LIMIT 20', [t.sub]);
-      res.json({ total: s.rows.reduce((a, x) => a + x.n, 0), bySubject: s.rows, subjects: SUBJECTS, imports: b.rows });
+      const src = await query<{ source: string; n: number }>('SELECT source, count(*)::int n FROM questions WHERE teacher_id = $1 GROUP BY 1', [t.sub]);
+      const bySource = { guru: 0, bawaan: 0, ...Object.fromEntries(src.rows.map((x) => [x.source, x.n])) };
+      res.json({ total: s.rows.reduce((a, x) => a + x.n, 0), bySubject: s.rows, bySource, subjects: SUBJECTS, imports: b.rows });
     }),
   );
 
@@ -427,11 +451,31 @@ export function apiRouter(registry: RuntimeRegistry) {
     wrap(async (_req, res) => {
       const t = teacherOf(res);
       const fps = SAMPLE_QUESTIONS.map((q) => questionFingerprint(q));
-      const have = await repo.existingFingerprints(t.sub, fps);
+      const have = await repo.existingFingerprints(t.sub, fps, 'bawaan');
       const fresh = SAMPLE_QUESTIONS.filter((_, i) => !have.has(fps[i]!));
       if (!fresh.length) return res.json({ inserted: 0 });
-      const out = await repo.insertBatch(t.sub, 'Contoh soal EDUVERSE', fresh);
+      // disimpan sebagai SOAL BAWAAN: hanya dipakai bila guru memilih sumber "Soal Bawaan" atau "Gabungan"
+      const out = await repo.insertBatch(t.sub, 'Contoh soal EDUVERSE', fresh, 'bawaan');
       res.json(out);
+    }),
+  );
+
+  // Hapus seluruh soal bawaan dari bank guru (soal guru tidak tersentuh; riwayat sesi tetap utuh lewat cuplikan jawaban)
+  r.post(
+    '/questions/delete-bawaan',
+    wrap(async (_req, res) => {
+      const d = await query("DELETE FROM questions WHERE teacher_id = $1 AND source = 'bawaan'", [teacherOf(res).sub]);
+      res.json({ deleted: d.rowCount ?? 0 });
+    }),
+  );
+
+  // Pratinjau jumlah soal yang cocok dengan pengaturan sesi (sumber, mapel, kelas, kesulitan, soal terpilih)
+  r.post(
+    '/questions/pool-count',
+    wrap(async (req, res) => {
+      const b = z.object({ settings: settingsSchema.default({}), questionIds: z.array(z.string().uuid()).max(10000).optional() }).safeParse(req.body);
+      if (!b.success) return res.status(400).json({ error: 'Pengaturan tidak valid.' });
+      res.json(await repo.poolCount(teacherOf(res).sub, poolOf(b.data.settings, b.data.questionIds)));
     }),
   );
 
@@ -468,7 +512,7 @@ export function apiRouter(registry: RuntimeRegistry) {
     '/questions/import/preview',
     (req, res, next) =>
       upload.single('file')(req, res, (err: unknown) => {
-        if (err) return res.status(400).json({ error: 'File terlalu besar (maks 5 MB) atau tidak valid.' });
+        if (err) return res.status(400).json({ error: 'File terlalu besar (maks 25 MB) atau tidak valid. Bagi menjadi beberapa file.' });
         next();
       }),
     wrap(async (req, res) => {
@@ -503,25 +547,24 @@ export function apiRouter(registry: RuntimeRegistry) {
   r.post(
     '/questions/import/commit',
     wrap(async (req, res) => {
-      const b = z.object({ filename: z.string().max(120), questions: z.array(questionSchema).min(1).max(2000), skipDuplicates: z.boolean().default(true) }).safeParse(req.body);
+      // Dashboard mengirim per bagian (mis. 500 soal) → jumlah total soal dalam satu file tidak dibatasi angka tetap
+      const b = z
+        .object({
+          filename: z.string().max(120),
+          questions: z.array(questionSchema).min(1).max(1000),
+          skipDuplicates: z.boolean().optional(),
+          duplicateMode: z.enum(['lewati', 'perbarui', 'tambah']).optional(),
+        })
+        .safeParse(req.body);
       if (!b.success) return res.status(400).json({ error: 'Data impor tidak valid.' });
       const t = teacherOf(res);
       const { validateQuestion } = await import('@eduverse/shared');
       const valid = b.data.questions.filter((q) => validateQuestion(q).length === 0);
-      let items = valid;
-      if (b.data.skipDuplicates) {
-        const have = await repo.existingFingerprints(t.sub, valid.map((q) => questionFingerprint(q)));
-        const seen = new Set<string>();
-        items = valid.filter((q) => {
-          const fp = questionFingerprint(q);
-          if (have.has(fp) || seen.has(fp)) return false;
-          seen.add(fp);
-          return true;
-        });
-      }
-      if (!items.length) return res.json({ inserted: 0, skipped: b.data.questions.length });
-      const out = await repo.insertBatch(t.sub, b.data.filename, items);
-      res.json({ ...out, skipped: b.data.questions.length - items.length });
+      const invalid = b.data.questions.length - valid.length;
+      const mode = b.data.duplicateMode ?? (b.data.skipDuplicates === false ? 'tambah' : 'lewati');
+      if (!valid.length) return res.json({ inserted: 0, updated: 0, skipped: b.data.questions.length, invalid });
+      const out = await repo.importQuestions(t.sub, b.data.filename, valid, mode);
+      res.json({ ...out, skipped: out.skipped + invalid, invalid });
     }),
   );
 

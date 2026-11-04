@@ -22,5 +22,12 @@ if (!login.ok) {
 }
 const stats = await call('/questions/stats');
 if (!stats.data?.total) await call('/questions/sample', {});
+// Sesi resmi memakai "Hanya Soal Guru" (bawaan). Guru uji meniru guru sungguhan: soal bawaan diimpor sebagai soal miliknya.
+if (!(await call('/questions/stats')).data?.bySource?.guru) {
+  const list = await call('/questions?source=bawaan&pageSize=500');
+  const questions = (list.data?.items ?? []).map(({ id, source, createdAt, updatedAt, importBatch, ...q }) => q);
+  const c = await call('/questions/import/commit', { filename: 'Soal guru uji', questions, duplicateMode: 'tambah' });
+  if (!c.ok) throw new Error(`Gagal mengimpor soal guru uji: ${c.data?.error ?? c.status}`);
+}
 const after = await call('/questions/stats');
-console.log(`Guru ${email} siap · ${after.data?.total ?? 0} soal di bank`);
+console.log(`Guru ${email} siap · ${after.data?.total ?? 0} soal di bank (guru ${after.data?.bySource?.guru ?? 0}, bawaan ${after.data?.bySource?.bawaan ?? 0})`);

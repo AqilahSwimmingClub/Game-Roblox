@@ -47,7 +47,7 @@ export async function createApp(): Promise<AppHandle> {
   );
   app.use(compression());
   app.use(cookieParser());
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '16mb' }));
 
   const server = http.createServer(app);
   const io = new Server(server, {

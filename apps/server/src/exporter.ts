@@ -40,7 +40,12 @@ export async function sessionResults(sessionId: string): Promise<{ info: Session
     ketepatan: x.answered ? Math.round((x.correct / x.answered) * 100) : 0,
   }));
   const a = await query<AnswerDetail>(
-    `SELECT a.created_at, r.absen, r.nickname, q.subject, q.topic, q.prompt, a.correct, a.points, a.attempt, a.zone
+    // cuplikan soal saat dijawab (migrasi 007) diutamakan: hasil sesi lama tidak berubah walau soal diedit/dihapus
+    `SELECT a.created_at, r.absen, r.nickname,
+            COALESCE(a.question_snapshot->>'subject', q.subject) AS subject,
+            COALESCE(a.question_snapshot->>'topic', q.topic) AS topic,
+            COALESCE(a.question_snapshot->>'prompt', q.prompt) AS prompt,
+            a.correct, a.points, a.attempt, a.zone
        FROM answers a JOIN session_roster r ON r.id = a.roster_id LEFT JOIN questions q ON q.id = a.question_id
       WHERE a.session_id = $1 ORDER BY a.created_at`,
     [sessionId],

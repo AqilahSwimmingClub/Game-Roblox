@@ -120,12 +120,19 @@ run('server EDUVERSE (Postgres + Socket.IO)', () => {
     const prev = await fetch(base + '/api/questions/import/preview', { method: 'POST', body: fd, headers: { cookie } }).then((r) => r.json());
     expect(prev.total).toBe(5);
     expect(prev.valid).toBe(4);
-    expect(prev.duplicates).toBe(3); // 3 soal template sudah ada di contoh soal
+    // soal template juga ada sebagai soal BAWAAN, tetapi duplikat dihitung terhadap soal milik guru saja
+    expect(prev.duplicates).toBe(0);
     const commit = await api('/questions/import/commit', {
       method: 'POST',
       body: JSON.stringify({ filename: prev.filename, questions: prev.rows.filter((r: any) => !r.errors.length).map((r: any) => r.question), skipDuplicates: true }),
     });
-    expect(commit.body.inserted).toBe(1);
+    expect(commit.body.inserted).toBe(4);
+    const again = await api('/questions/import/commit', {
+      method: 'POST',
+      body: JSON.stringify({ filename: prev.filename, questions: prev.rows.filter((r: any) => !r.errors.length).map((r: any) => r.question), duplicateMode: 'lewati' }),
+    });
+    expect(again.body.inserted).toBe(0);
+    expect(again.body.skipped).toBe(4);
 
     const dtpl = await api('/questions/template.docx');
     expect(dtpl.status).toBe(200);

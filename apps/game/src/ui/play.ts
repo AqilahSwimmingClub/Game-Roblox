@@ -26,6 +26,8 @@ export function showQuestion(q: PublicQuestion, submit: (a: AnswerPayload) => Pr
 
   const render = () => {
     body.replaceChildren(h('div', { class: 'teks' }, q.prompt));
+    // gambar soal dari guru (data URL yang sudah diperiksa server)
+    if (q.image && /^data:image\/(png|jpeg|webp);base64,/.test(q.image)) body.appendChild(h('img', { class: 'soal-gambar', src: q.image, alt: 'Gambar soal', style: 'display:block;max-width:100%;max-height:min(34vh,260px);margin:8px auto;border-radius:12px;object-fit:contain' }));
     if (q.type === 'pg' || q.type === 'bs') {
       const opts = q.type === 'bs' ? ['Benar', 'Salah'] : q.options;
       const grid = h('div', { class: 'opsi' });
