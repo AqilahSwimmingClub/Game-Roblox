@@ -127,7 +127,42 @@ async function device(browser, name, w, h) {
   };
   // Autopilot uji (garis lurus). Bila jalurnya melewati pusaran Gerbang Antardunia, dialog gerbang muncul seperti
   // pada pemain sungguhan: tutup dengan "Tutup" (seperti anak-anak) lalu lanjutkan perjalanan.
+  // Menara berongga 10×10 m di tengah alun-alun Kota (pintu di sisi utara, x −1,2…1,2): autopilot garis lurus bisa
+  // masuk lewat pintu lalu menabrak sudut dalam. Pemain sungguhan memutar — autopilot uji juga.
+  const TOWER = 5.6;
+  const crossesTower = (a, b) => {
+    for (let i = 0; i <= 40; i++) {
+      const t = i / 40;
+      if (Math.abs(a.x + (b.x - a.x) * t) < TOWER && Math.abs(a.z + (b.z - a.z) * t) < TOWER) return true;
+    }
+    return false;
+  };
+  const kotaRoute = async (x, z) => {
+    const e = await edu();
+    if (e.scene !== 'kota' || !e.pos) return [];
+    const p = { x: e.pos.x, z: e.pos.z };
+    const pts = [];
+    if (Math.abs(p.x) < 5 && Math.abs(p.z) < 5) pts.push({ x: 0, z: 3.4 }, { x: 0, z: 8 }); // keluar lewat pintu
+    const from = pts.at(-1) ?? p;
+    if (crossesTower(from, { x, z })) {
+      const corners = [
+        { x: 8, z: 8 },
+        { x: -8, z: 8 },
+        { x: 8, z: -8 },
+        { x: -8, z: -8 },
+      ].filter((c) => !crossesTower(from, c) && !crossesTower(c, { x, z }));
+      corners.sort((c1, c2) => Math.hypot(c1.x - from.x, c1.z - from.z) + Math.hypot(c1.x - x, c1.z - z) - Math.hypot(c2.x - from.x, c2.z - from.z) - Math.hypot(c2.x - x, c2.z - z));
+      if (corners[0]) pts.push(corners[0]);
+      else pts.push({ x: from.x >= 0 ? 8 : -8, z: 8 }, { x: x >= 0 ? 8 : -8, z: z >= 0 ? 8 : -8 });
+    }
+    return pts;
+  };
   const goTo = async (x, z, until = null, ms = 90000) => {
+    for (const w of await kotaRoute(x, z)) await walk(w.x, w.z, until, 30000);
+    if (until && (await edu()).prompt === until) return;
+    await walk(x, z, until, ms);
+  };
+  const walk = async (x, z, until = null, ms = 90000) => {
     for (let attempt = 0; attempt < 3; attempt++) {
       await page.evaluate(({ x, z }) => window.__eduDebug.goTo(x, z), { x, z });
       await page
@@ -254,7 +289,7 @@ try {
     // Yang diuji di langkah ini adalah kontrol SETELAH dialog pedagang ditutup, bukan navigasi autopilot.
     const v = vs.find((x) => x.id === 'V03') ?? vs.filter((x) => x.y < 1).sort((a, b) => Math.hypot(a.x - me.x, a.z - me.z) - Math.hypot(b.x - me.x, b.z - me.z))[0];
     await A.goTo(v.x, v.z + 1.8, 'pedagang');
-    if ((await A.edu()).prompt !== 'pedagang') throw new Error(`tidak sampai pedagang ${v.id}`);
+    if ((await A.edu()).prompt !== 'pedagang') throw new Error(`tidak sampai pedagang ${v.id} · posisi ${JSON.stringify((await A.edu()).pos)}`);
     await A.page.evaluate(() => window.__eduDebug.action());
     await A.page.getByRole('button', { name: 'Tutup' }).first().waitFor({ timeout: 10000 });
     await A.noOverflow('Pedagang');
