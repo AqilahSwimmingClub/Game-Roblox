@@ -81,3 +81,10 @@ async function route() {
 
 window.addEventListener('hashchange', () => void route());
 void route();
+
+// Jadikan Dashboard Guru dapat dipasang ke layar utama; tidak cache data siswa atau token.
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/guru/sw.js', { scope: '/guru/' }).catch(() => undefined);
+  }, { once: true });
+}
