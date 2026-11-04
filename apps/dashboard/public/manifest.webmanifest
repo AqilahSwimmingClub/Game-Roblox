@@ -1,0 +1,25 @@
+{
+  "id": "/guru/",
+  "name": "EDUVERSE — Dashboard Guru",
+  "short_name": "EDUVERSE Guru",
+  "description": "Dashboard Guru untuk mengelola sesi kelas, bank soal, peta siswa dan podium EDUVERSE.",
+  "lang": "id",
+  "start_url": "/guru/",
+  "scope": "/guru/",
+  "display": "standalone",
+  "display_override": [
+    "standalone",
+    "minimal-ui"
+  ],
+  "background_color": "#F1F7FF",
+  "theme_color": "#1E2A4A",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/guru/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
