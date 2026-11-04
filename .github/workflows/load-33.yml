@@ -12,6 +12,12 @@
 name: Uji Beban 33 Siswa (manual)
 
 on:
+  # GitHub hanya mengizinkan workflow_dispatch untuk workflow yang sudah "terdaftar".
+  # Workflow yang belum pernah berjalan dan belum ada di branch bawaan tidak bisa dipicu manual.
+  # Satu push ke branch pendaftaran di bawah ini mendaftarkannya (dan hanya menjalankan job
+  # verifikasi backend, bukan uji beban 40 menit). Uji beban tetap manual saja.
+  push:
+    branches: ['ci/daftar-uji-beban-33']
   workflow_dispatch:
     inputs:
       backend_url:
@@ -48,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      BASE_URL: ${{ inputs.backend_url }}
+      BASE_URL: ${{ inputs.backend_url || 'https://eduverse-aqilah-api-production.up.railway.app' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -86,6 +92,8 @@ jobs:
   beban:
     name: 33 siswa · ${{ inputs.duration_minutes }} menit · backend nyata
     needs: verifikasi
+    # Uji beban 40 menit HANYA berjalan ketika dipicu manual — tidak pada push mana pun.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     env:
