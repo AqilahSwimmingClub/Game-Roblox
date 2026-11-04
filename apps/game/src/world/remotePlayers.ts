@@ -224,6 +224,11 @@ export class RemotePlayers {
       .sort((a, b) => a.d - b.d);
   }
 
+  /** Posisi pemain lain beserta nama (uji otomatis: gerakan terlihat di perangkat lain). */
+  named(): { nama: string; x: number; z: number }[] {
+    return [...this.map.values()].map((r) => ({ nama: r.nama, x: Math.round(r.pos.x * 10) / 10, z: Math.round(r.pos.z * 10) / 10 }));
+  }
+
   positions(): { x: number; z: number }[] {
     return [...this.map.values()].map((r) => ({ x: r.pos.x, z: r.pos.z }));
   }

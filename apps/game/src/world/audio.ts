@@ -1,4 +1,5 @@
 /** Suara EDUVERSE disintesis dengan Web Audio (tanpa file audio/aset berlisensi). */
+import { MusicEngine } from './music.js';
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let enabled = true;
@@ -192,3 +193,9 @@ export const sfxLiving = {
   bump: () => tone(110, 0, 0.18, 'square', 0.15),
   coin: () => [988, 1319].forEach((f, i) => tone(f, i * 0.08, 0.18, 'triangle', 0.16)),
 };
+
+/** Musik latar per dunia (lihat music.ts) — memakai AudioContext & volume utama yang sama dengan efek suara. */
+export const music = new MusicEngine(
+  () => ac(),
+  () => master,
+);

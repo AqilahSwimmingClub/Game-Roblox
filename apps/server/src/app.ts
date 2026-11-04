@@ -55,9 +55,11 @@ export async function createApp(): Promise<AppHandle> {
     // opsi cors hanya berlaku untuk HTTP long-polling; upgrade WebSocket diperiksa di sini
     allowRequest: (req, cb) => cb(null, originAllowed(req.headers.origin, req.headers.host)),
     maxHttpBufferSize: 64 * 1024,
-    // HP sering berpindah jaringan: sambungan mati terdeteksi ≤ 25 dtk lalu klien menyambung ulang otomatis
-    pingInterval: 10_000,
-    pingTimeout: 15_000,
+    // HP sering mengalami jeda jaringan singkat (pindah menara seluler/WiFi, layar redup). Batas 10/15 dtk terlalu
+    // ketat dan memutus pemain yang sebenarnya masih online; 20/25 dtk (mendekati bawaan Socket.IO) lebih toleran,
+    // dan proxy hosting (Railway/Render) tetap menerima lalu lintas jauh di bawah batas idle-nya.
+    pingInterval: 20_000,
+    pingTimeout: 25_000,
     connectionStateRecovery: { maxDisconnectionDuration: 60_000 },
   });
 

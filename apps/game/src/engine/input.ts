@@ -76,7 +76,7 @@ export class Input {
     this.moveX = x / len;
     this.moveY = y / len;
     this.run = k.has('ShiftLeft') || k.has('ShiftRight') || this.runToggle;
-    this.jump = k.has('Space');
+    this.jump = k.has('Space') || this.jumpHeld || this.jumpPending;
     this.dive = k.has('KeyC') || k.has('ControlLeft');
   }
 
@@ -179,6 +179,23 @@ export class Input {
     return p.length >= 2 ? Math.hypot(p[0]!.x - p[1]!.x, p[0]!.y - p[1]!.y) : 0;
   }
 
+  // Tombol Lompat sentuh: ketukan singkat bisa dimulai & selesai di antara dua frame → tanpa "latch" lompatan hilang.
+  private jumpHeld = false;
+  private jumpPending = false;
+  /** Tekan/lepas tombol Lompat di layar. Ketukan dijamin terbaca minimal satu frame. */
+  pressJump(down: boolean) {
+    this.jumpHeld = down;
+    if (down) this.jumpPending = true;
+    this.jump = this.jumpHeld || this.jumpPending || this.keys.has('Space');
+  }
+  /** Dipanggil sekali di akhir setiap frame (setelah fisika membaca masukan). */
+  endFrame() {
+    if (this.jumpPending && !this.jumpHeld) {
+      this.jumpPending = false;
+      this.jump = this.keys.has('Space');
+    }
+  }
+
   setRunToggle(v: boolean) {
     this.runToggle = v;
     this.run = v || this.keys.has('ShiftLeft');
@@ -205,6 +222,8 @@ export class Input {
     this.joyId = null;
     this.camTouches.clear();
     this.pinchDist = 0;
+    this.jumpHeld = false;
+    this.jumpPending = false;
     this.joyBase.classList.remove('active');
     this.joyKnob.style.transform = 'translate(-50%, -50%)';
   }

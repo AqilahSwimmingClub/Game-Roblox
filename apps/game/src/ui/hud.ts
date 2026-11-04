@@ -10,7 +10,7 @@
 import { WORLDS, KOTA, worldZones, worldLayout, WORLD_ENV, type LeaderboardRow, type SessionPublicState, type WorldId } from '@eduverse/shared';
 import { h, btn, ui } from './dom.js';
 import type { QualitySetting } from '../engine/quality.js';
-import { setSound, soundOn } from '../world/audio.js';
+import { setSound, soundOn, music } from '../world/audio.js';
 import { drawLandmarks } from '../world/living/landmarks.js';
 
 export interface HudCallbacks {
@@ -87,9 +87,8 @@ export class Hud {
     this.miniWrap = h('button', { type: 'button', class: 'minimap', title: 'Ketuk untuk peta besar', 'aria-label': 'Peta', onclick: () => this.openMap() }, this.minimap);
     const lbBtn = btn('🏆', 'kuning hud-ikon', () => this.toggleLeaderboard(), { 'aria-label': 'Skor', title: 'Papan skor' });
     const menuBtn = btn('☰', 'putih hud-ikon', () => this.openMenu(), { 'aria-label': 'Menu', title: 'Menu' });
-    const emoteBtn = btn('😀', 'ungu bulat hud-emote', () => this.openEmotes(), { 'aria-label': 'Emote', title: 'Emote' });
     const profil = h('div', { class: 'panel tipis profil' }, this.initialEl, h('div', { class: 'profil-teks' }, this.nameEl, h('div', { class: 'poin' }, h('i', { class: 'star' }), this.poinEl)));
-    this.worldOnly = [this.timerEl, this.miniWrap, this.progressEl, this.top3El, emoteBtn];
+    this.worldOnly = [this.timerEl, this.miniWrap, this.progressEl, this.top3El];
     this.lobbyOnly = [this.worldBtn];
     const top = h(
       'div',
@@ -99,7 +98,7 @@ export class Hud {
       h('div', { class: 'hud-right' }, h('div', { class: 'hud-btns' }, menuBtn, lbBtn), h('div', { class: 'hud-mini' }, this.miniWrap)),
       h('div', { class: 'hud-chips' }, this.rankEl, this.walletSlot, this.progressEl, this.top3El),
     );
-    const br = h('div', { class: 'hud-br' }, this.worldBtn, this.actionBtn, h('div', { class: 'hud-br-row' }, emoteBtn, this.diveBtn, runBtn, jumpBtn));
+    const br = h('div', { class: 'hud-br' }, this.worldBtn, this.actionBtn, h('div', { class: 'hud-br-row' }, this.diveBtn, runBtn, jumpBtn));
     this.el = h('div', { class: 'hud', style: 'display:none' }, top, h('div', { class: 'joy-hint touch-only' }, 'Geser di sini untuk berjalan'), br, this.oxyEl);
     ui.add(this.el);
     this.setCanDive(false);
@@ -351,10 +350,15 @@ export class Hud {
       close();
       this.cb.toLobby();
     });
-    const soundBtn = btn(soundOn() ? 'Suara: Hidup' : 'Suara: Mati', 'putih lebar', () => {
+    const soundBtn = btn(soundOn() ? 'Suara: Hidup' : 'Suara: Mati', 'putih', () => {
       setSound(!soundOn());
       soundBtn.textContent = soundOn() ? 'Suara: Hidup' : 'Suara: Mati';
     });
+    const musicBtn = btn(music.enabled ? 'Musik: Hidup' : 'Musik: Mati', 'putih', () => {
+      music.setEnabled(!music.enabled);
+      musicBtn.textContent = music.enabled ? 'Musik: Hidup' : 'Musik: Mati';
+    });
+    const emoteBtn = btn('😀 Emote', 'ungu', () => (close(), this.openEmotes()));
     layer.appendChild(
       h(
         'div',
@@ -363,7 +367,8 @@ export class Hud {
         btn('Lanjut Bermain', 'hijau lebar', close),
         h('div', { style: 'font-weight:900' }, 'Kualitas grafis'),
         h('div', { class: 'grid-kualitas' }, ...qBtns),
-        soundBtn,
+        h('div', { class: 'grid-dua' }, soundBtn, musicBtn),
+        this.mode === 'dunia' ? emoteBtn : null,
         this.mode === 'lobi' ? btn('Ganti Avatar', 'ungu lebar', () => (close(), this.cb.avatar())) : null,
         btn('Tidak bisa bergerak? Pulihkan', 'putih lebar', () => (close(), this.cb.recover())),
         this.mode === 'dunia' ? exitBtn : null,

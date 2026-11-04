@@ -5,11 +5,12 @@
  */
 import './ui/styles.css';
 import * as THREE from 'three';
-import { EV, LIMITS, WORLDS, WORLD_ENV, OXYGEN_SECONDS, isWorldId, SHOP, CATALOG, buildKota, buildLobby, DEFAULT_AVATAR, type ItemOffer, type WalletMsg, type VehicleStateMsg, type Vendor, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
+import { EV, LIMITS, WORLDS, WORLD_ENV, OXYGEN_SECONDS, isWorldId, zoneIn, SHOP, CATALOG, buildKota, buildLobby, DEFAULT_AVATAR, type ItemOffer, type WalletMsg, type VehicleStateMsg, type Vendor, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
 import { Engine } from './engine/engine.js';
 import { Input } from './engine/input.js';
 import { FollowCamera } from './engine/camera.js';
 import { Stage, type Prompt } from './world/stage.js';
+import { music } from './world/audio.js';
 import { LocalPlayer } from './world/localPlayer.js';
 import { RemotePlayers } from './world/remotePlayers.js';
 import { Effects } from './world/effects.js';
@@ -83,7 +84,7 @@ applyQuality();
 // ───────────────────────── HUD ─────────────────────────
 const hud = new Hud({
   action: () => input.fireAction(),
-  jump: (d) => (input.jump = d),
+  jump: (d) => input.pressJump(d),
   dive: (d) => (input.dive = d),
   runToggle: (on) => input.setRunToggle(on),
   emote: (id) => {
@@ -132,6 +133,9 @@ function loadStage(scene: SceneId) {
     (engine.scene.fog as THREE.Fog | null)?.color.setHex(0xcfe8ff);
   }
   oxygen = OXYGEN_SECONDS;
+  music.setTheme(scene === 'lobi' ? 'lobi' : scene === 'podium' ? 'podium' : scene);
+  music.setUnderwater(false);
+  music.setOxygenLow(false);
 }
 
 /** Sapaan & tips saat masuk tiap dunia. */
@@ -496,40 +500,85 @@ async function runPodium(top3: PodiumEntry[]) {
 }
 let podiumCam = false;
 
-// Sambung ulang otomatis: bergabung lagi dengan identitas yang sama, kembali ke adegan terakhir
-net.onReconnect(async () => {
-  if (!net.code || !me) return;
-  const r = await net.join(net.code);
-  if (!r.ok) return notify(r.error, 'peringatan');
-  session = r.state;
-  roster = r.roster;
-  if (!r.me) return;
-  me = r.me;
-  notify('Tersambung kembali!', 'sukses');
-  if (stage) {
-    // Server melepas kendaraan saat koneksi putus (kendaraan diparkir di posisi terakhir yang sah)
-    mobility?.forceWalk();
-    const res = await net.enter(stage.scene);
-    if (res.ok && player) {
-      player.teleport(res.spawn.x, res.spawn.y, res.spawn.z);
-      if (res.points) stage.setPoints(res.points, res.done);
-      if (res.vehicles) stage.living?.parked.setStates(res.vehicles);
-      if (mobility) mobility.hasJetpack = !!res.jetpack;
-      wallet.set(res.dompet);
-      offerStore.clearAll();
-      offerStore.apply(res.offers);
+// Sambung ulang otomatis: bergabung lagi dengan identitas yang sama, kembali ke dunia & posisi terakhir yang
+// tervalidasi server, pulihkan skor/tas/penawaran, lalu aktifkan kembali kontrol. Dicoba ulang bila gagal.
+let rejoining = false;
+async function rejoin(attempt = 1): Promise<void> {
+  if (!net.code || !me || !net.connected) return;
+  if (rejoining) return;
+  rejoining = true;
+  try {
+    const r = await net.join(net.code);
+    if (!r.ok) {
+      // sesi berakhir/ditolak → beri tahu; galat sementara → coba lagi
+      if (/tidak ditemukan|berakhir|selesai/i.test(r.error)) return void notify(r.error, 'peringatan');
+      throw new Error(r.error);
     }
+    session = r.state;
+    roster = r.roster;
+    if (!r.me) return;
+    me = r.me;
+    lastScore.poin = me.poin ?? lastScore.poin;
+    hud.setScore(lastScore.poin, lastScore.rank, lastScore.total);
+    wallet.set(me.dompet);
+    if (stage && stage.scene !== 'podium') {
+      // Server melepas kendaraan saat koneksi putus (kendaraan diparkir di posisi terakhir yang sah)
+      mobility?.forceWalk();
+      const res = await net.enter(stage.scene);
+      if (res.ok && player) {
+        player.teleport(res.spawn.x, res.spawn.y, res.spawn.z, player.ry);
+        if (res.points) stage.setPoints(res.points, res.done);
+        if (res.vehicles) stage.living?.parked.setStates(res.vehicles);
+        if (mobility) mobility.hasJetpack = !!res.jetpack;
+        wallet.set(res.dompet);
+        offerStore.clearAll();
+        offerStore.apply(res.offers);
+        cam.snap();
+      } else if (!res.ok && isWorldId(stage.scene)) {
+        // dunia ditutup guru / permainan belum berjalan → kembali ke lobi dengan aman
+        notify(res.error, 'info');
+        rejoining = false;
+        await goScene('lobi');
+      }
+    }
+    lockInput('koneksi', false);
+    input.reset();
+    reconnects++;
+    notify('Tersambung kembali!', 'sukses');
+  } catch {
+    if (attempt < 5 && net.connected) setTimeout(() => void rejoin(attempt + 1), 600 * attempt);
+  } finally {
+    rejoining = false;
   }
-});
+}
+let reconnects = 0;
+net.onReconnect(() => void rejoin());
+
 let offlineBanner: { close: () => void } | null = null;
-net.socket.on('disconnect', () => {
-  setTimeout(() => {
-    if (!net.connected && me && !offlineBanner) offlineBanner = blocker('Koneksi terputus', 'Menyambung ulang otomatis… Pastikan internet HP menyala.');
+let offlineTimer = 0;
+net.socket.on('disconnect', (reason) => {
+  lastDisconnect = reason;
+  clearTimeout(offlineTimer);
+  // putus singkat (< 2,5 dtk, mis. pindah menara seluler) tidak perlu dialog
+  offlineTimer = window.setTimeout(() => {
+    if (net.connected || !me || offlineBanner) return;
+    lockInput('koneksi', true);
+    offlineBanner = blocker('Menyambung ulang…', 'Koneksi ke server EDUVERSE sedang tersambung kembali secara otomatis. Posisi, poin, dan tasmu aman.', { label: 'Muat Ulang', fn: () => location.reload() });
   }, 2500);
 });
 net.socket.on('connect', () => {
+  clearTimeout(offlineTimer);
   offlineBanner?.close();
   offlineBanner = null;
+  lockInput('koneksi', false);
+});
+let lastDisconnect = '';
+// Kembali dari latar belakang (layar HP mati / pindah aplikasi): sambungkan segera tanpa menunggu jeda backoff
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && !net.connected && me) net.socket.connect();
+});
+window.addEventListener('online', () => {
+  if (!net.connected && me) net.socket.connect();
 });
 
 // ───────────────────────── loop frame ─────────────────────────
@@ -596,6 +645,8 @@ engine.onFrame((dt, t) => {
     }
     oxygen = under ? Math.max(0, oxygen - dt) : Math.min(OXYGEN_SECONDS, oxygen + dt * 6);
     hud.setOxygen(under || oxygen < OXYGEN_SECONDS ? oxygen / OXYGEN_SECONDS : null);
+    music.setUnderwater(under);
+    music.setOxygenLow(under && oxygen < OXYGEN_SECONDS * 0.25);
     if (under && oxygen <= 0) {
       const w = stage.collision.waterAt(player.body.x, player.body.z);
       player.teleport(player.body.x, (w?.surface ?? 0) - 1.2, player.body.z, player.ry);
@@ -605,7 +656,11 @@ engine.onFrame((dt, t) => {
   } else {
     hud.setOxygen(null);
     document.body.classList.remove('bawah-air');
+    music.setUnderwater(false);
+    music.setOxygenLow(false);
   }
+  // Hutan: nuansa misteri ringan di Gua Kristal
+  if (stage.scene === 'hutan') music.setVariant(zoneIn('hutan', player.body.x, player.body.z)?.id === 'gua' ? 'misteri' : '');
 
   const b = player.body;
   if (b.y < -30) {
@@ -661,6 +716,8 @@ if (debug) {
     friends: (r = 50) => (player ? remote.near(player.body.x, player.body.z, r) : []),
     vendors: () => stage?.living?.layout.vendors.map((v) => ({ id: v.id, x: v.x, y: v.y, z: v.z })) ?? [],
     rifts: () => stage?.living?.layout.rifts.map((r) => ({ id: r.id, x: r.x, y: r.y, z: r.z, to: r.to })) ?? [],
+    /** Uji: putuskan transport Socket.IO seperti jaringan HP yang hilang (klien menyambung ulang sendiri). */
+    dropConnection: () => net.socket.io.engine?.close(),
     exitVehicle: () => (mobility?.driving ? mobility.act({ kind: 'turun', id: mobility.driving.id, label: '' }) : null),
     hold: (k: Partial<typeof debugHold>) => {
       Object.assign(debugHold, k);
@@ -678,6 +735,10 @@ function exposeState() {
   (window as unknown as { __edu: unknown }).__edu = {
     scene: stage?.scene ?? null,
     input: { ...input.debugState(), locks: [...inputLocks] },
+    net: { connected: net.connected, reconnects, lastDisconnect, banner: !!offlineBanner },
+    cam: { x: round(engine.camera.position.x), y: round(engine.camera.position.y), z: round(engine.camera.position.z) },
+    others: remote.named(),
+    music: music.state(),
     env: { lowGravity: !!player?.lowGravity, oxygen: round(oxygen), oxygenBar: hud.oxygenShown, swimming: !!player?.body.swimming, submerged: player ? round(player.body.submerged) : 0, sky: stage ? (engine.scene.background as THREE.Color | null)?.getHex() ?? null : null },
     pos: player ? { x: player.body.x, y: player.body.y, z: player.body.z } : null,
     remotes: remote.count(),
@@ -781,3 +842,6 @@ async function boot() {
 }
 
 void boot();
+
+// Setelah semua logika frame membaca masukan: lepaskan "latch" ketukan Lompat (harus didaftarkan SETELAH loop utama)
+engine.onFrame(() => input.endFrame());
