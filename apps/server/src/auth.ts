@@ -46,7 +46,7 @@ export function setAuthCookie(res: Response, token: string) {
   res.cookie(COOKIE, token, {
     httpOnly: true,
     sameSite: 'lax',
-    secure: config.isProd,
+    secure: config.isProd && !config.lanHttp,
     maxAge: 12 * 3600 * 1000,
     path: '/',
   });

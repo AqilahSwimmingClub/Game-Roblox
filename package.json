@@ -21,6 +21,7 @@
     "db:migrate": "npm run db:migrate -w @eduverse/server",
     "db:seed": "npm run db:seed -w @eduverse/server",
     "start": "npm run start -w @eduverse/server",
+    "sekolah": "npm run build && node apps/server/dist/sekolah.js",
     "e2e": "node tests/e2e/two-players.mjs",
     "loadtest": "node tests/load/bots.mjs",
     "build:web": "npm run build -w @eduverse/shared && npm run build -w @eduverse/game && npm run build -w @eduverse/dashboard -- --outDir ../game/dist/guru --emptyOutDir && node scripts/write-web-config.mjs",

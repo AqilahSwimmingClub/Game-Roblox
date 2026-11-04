@@ -37,12 +37,12 @@ export async function createApp(): Promise<AppHandle> {
           'connect-src': ["'self'", 'ws:', 'wss:'],
           'media-src': ["'self'", 'data:', 'blob:'],
           'worker-src': ["'self'", 'blob:'],
-          'upgrade-insecure-requests': config.isProd ? [] : null,
+          'upgrade-insecure-requests': config.isProd && !config.lanHttp ? [] : null,
         },
       },
       crossOriginEmbedderPolicy: false,
       crossOriginResourcePolicy: { policy: 'cross-origin' }, // unduhan ekspor dari Dashboard di domain lain
-      hsts: config.isProd,
+      hsts: config.isProd && !config.lanHttp,
     }),
   );
   app.use(compression());
@@ -53,7 +53,7 @@ export async function createApp(): Promise<AppHandle> {
   const io = new Server(server, {
     cors: { origin: (origin, cb) => cb(null, originAllowed(origin)) },
     // opsi cors hanya berlaku untuk HTTP long-polling; upgrade WebSocket diperiksa di sini
-    allowRequest: (req, cb) => cb(null, originAllowed(req.headers.origin)),
+    allowRequest: (req, cb) => cb(null, originAllowed(req.headers.origin, req.headers.host)),
     maxHttpBufferSize: 64 * 1024,
     // HP sering berpindah jaringan: sambungan mati terdeteksi ≤ 25 dtk lalu klien menyambung ulang otomatis
     pingInterval: 10_000,
