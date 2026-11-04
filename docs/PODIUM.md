@@ -60,7 +60,15 @@ Klien tetap berfungsi dengan backend lama (acara dimulai saat pesan diterima; ti
 Cek versi yang berjalan: `GET /api/health` → `build.commit`, dan workflow **Uji Deployment Publik** (job *Ketahanan
 koneksi backend*) melaporkan heartbeat yang sedang berjalan.
 
-Deploy terkontrol: **Actions → Deploy Backend Railway (manual) → Run workflow** (butuh secret `RAILWAY_TOKEN`).
+**Cara tercepat sebelum PR digabung (dashboard Railway, tanpa token):** Railway → project → service
+`eduverse-aqilah-api` → Settings → Source → Branch = `fix/eduverse-responsive-movement` → Deploy. Railway membangun
+`Dockerfile` repo; variabel (DATABASE_URL Supabase, JWT_SECRET, CORS) tidak berubah. Setelah Live, buka
+`https://eduverse-aqilah-api-production.up.railway.app/api/health` → harus memuat `"build"` dengan
+`"fitur":["heartbeat-20-25","rejoin-pulih","podium-sinkron"]`. Rollback: Deployments → deployment sebelumnya → Redeploy
+(atau kembalikan Branch ke semula).
+
+Deploy terkontrol lewat GitHub (setelah file workflow ada di branch default):
+**Actions → Deploy Backend Railway (manual) → Run workflow** (butuh secret `RAILWAY_TOKEN`).
 Workflow menolak commit yang CI-nya belum hijau, mencatat versi lama, memverifikasi commit + heartbeat baru, lalu uji
 koneksi 60 dtk. Database Supabase dan variabel Railway tidak diubah. Rollback: Railway → Deployments → deployment
 sebelumnya → Redeploy, atau jalankan workflow dengan `ref` commit sebelumnya.
