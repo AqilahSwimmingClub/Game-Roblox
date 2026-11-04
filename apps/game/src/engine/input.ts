@@ -76,7 +76,7 @@ export class Input {
     this.moveX = x / len;
     this.moveY = y / len;
     this.run = k.has('ShiftLeft') || k.has('ShiftRight') || this.runToggle;
-    this.jump = k.has('Space') || this.jumpHeld || this.jumpPending;
+    this.jump = k.has('Space') || this.jumpHeld || this.jumpPendingUntil > 0;
     this.dive = k.has('KeyC') || k.has('ControlLeft');
   }
 
@@ -179,19 +179,20 @@ export class Input {
     return p.length >= 2 ? Math.hypot(p[0]!.x - p[1]!.x, p[0]!.y - p[1]!.y) : 0;
   }
 
-  // Tombol Lompat sentuh: ketukan singkat bisa dimulai & selesai di antara dua frame → tanpa "latch" lompatan hilang.
+  // Tombol Lompat sentuh: ketukan singkat bisa dimulai & selesai di antara dua frame, atau jatuh tepat saat kaki
+  // sesaat tidak menapak (turun trotoar, frame lambat). "Jump buffer" 150 ms memastikan ketukan tetap terbaca.
   private jumpHeld = false;
-  private jumpPending = false;
-  /** Tekan/lepas tombol Lompat di layar. Ketukan dijamin terbaca minimal satu frame. */
+  private jumpPendingUntil = 0;
+  /** Tekan/lepas tombol Lompat di layar. Ketukan tetap aktif ±150 ms walau jari sudah diangkat. */
   pressJump(down: boolean) {
     this.jumpHeld = down;
-    if (down) this.jumpPending = true;
-    this.jump = this.jumpHeld || this.jumpPending || this.keys.has('Space');
+    if (down) this.jumpPendingUntil = performance.now() + 150;
+    this.jump = this.jumpHeld || this.jumpPendingUntil > 0 || this.keys.has('Space');
   }
   /** Dipanggil sekali di akhir setiap frame (setelah fisika membaca masukan). */
   endFrame() {
-    if (this.jumpPending && !this.jumpHeld) {
-      this.jumpPending = false;
+    if (this.jumpPendingUntil && !this.jumpHeld && performance.now() >= this.jumpPendingUntil) {
+      this.jumpPendingUntil = 0;
       this.jump = this.keys.has('Space');
     }
   }
@@ -223,7 +224,7 @@ export class Input {
     this.camTouches.clear();
     this.pinchDist = 0;
     this.jumpHeld = false;
-    this.jumpPending = false;
+    this.jumpPendingUntil = 0;
     this.joyBase.classList.remove('active');
     this.joyKnob.style.transform = 'translate(-50%, -50%)';
   }

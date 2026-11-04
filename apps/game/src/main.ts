@@ -605,7 +605,6 @@ engine.onFrame((dt, t) => {
 
   // Mode uji: tahan tombol SELAM / LOMPAT lewat input yang sama dengan pemain sungguhan
   if (debug && debugHold.dive) input.dive = true;
-  if (debug && debugHold.jump) input.jump = true;
   // Autopilot khusus mode uji (?debug=1): berjalan biasa ke target lewat input yang sama — server tetap memvalidasi.
   if (debug && autopilot) {
     const dx = autopilot.x - player.body.x;
@@ -723,7 +722,8 @@ if (debug) {
     hold: (k: Partial<typeof debugHold>) => {
       Object.assign(debugHold, k);
       if (!debugHold.dive) input.dive = false;
-      if (!debugHold.jump) input.jump = false;
+      // lompat lewat jalur yang sama dengan tombol Lompat di layar (termasuk jump buffer)
+      if (k.jump !== undefined) input.pressJump(k.jump);
     },
   };
 }
