@@ -136,7 +136,7 @@ export class RemotePlayers {
 
   private add(id: string, nama: string, absen: number, cfg: AvatarConfig, x: number, y: number, z: number): Remote {
     const avatar = new AvatarMesh(cfg);
-    const label = makeLabelSprite(`${nama} · ${String(absen).padStart(2, '0')}`, { border: '#3BA7FF' });
+    const label = makeLabelSprite(`${nama} · ${String(absen).padStart(2, '0')}`, { border: '#3BA7FF', scale: 0.0065 });
     label.position.y = 2.55;
     avatar.root.add(label);
     const holder = new THREE.Group();
