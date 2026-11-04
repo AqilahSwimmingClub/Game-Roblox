@@ -32,6 +32,10 @@ jobs:
           - nama: preview dev/eduverse-living-city
             url: https://eduverse-web-preview-git-de-10d7d3-aqilahswimmingclubs-projects.vercel.app
             strict: 'true'
+          # Preview perbaikan HUD/kontrol/musik (PR #4) — diperiksa & Mode Demo dimainkan
+          - nama: preview perbaikan (PR 4)
+            url: https://eduverse-web-preview-git-cl-235940-aqilahswimmingclubs-projects.vercel.app
+            strict: 'true'
           # Production — hanya dilaporkan (sengaja belum diganti sampai alur lengkap siap)
           - nama: production
             url: https://eduverse-web-preview.vercel.app
