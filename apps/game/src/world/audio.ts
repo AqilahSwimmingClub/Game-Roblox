@@ -69,7 +69,7 @@ export const sfx = {
 
 // ───────────── suara kendaraan, jetpack, portal (Kota Hidup) ─────────────
 
-type LoopKind = 'mobil' | 'motor' | 'bus' | 'pesawat' | 'jetpack' | 'sepeda' | null;
+type LoopKind = 'mobil' | 'motor' | 'bus' | 'pesawat' | 'jetpack' | 'sepeda' | 'perahu' | 'kapalselam' | null;
 let loop: { kind: LoopKind; osc: OscillatorNode; osc2: OscillatorNode; gain: GainNode; filter: BiquadFilterNode } | null = null;
 let noise: { src: AudioBufferSourceNode; gain: GainNode; filter: BiquadFilterNode } | null = null;
 

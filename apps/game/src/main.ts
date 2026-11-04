@@ -5,7 +5,7 @@
  */
 import './ui/styles.css';
 import * as THREE from 'three';
-import { EV, LIMITS, WORLDS, SHOP, CATALOG, buildKota, buildLobby, DEFAULT_AVATAR, type ItemOffer, type WalletMsg, type VehicleStateMsg, type Vendor, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
+import { EV, LIMITS, WORLDS, WORLD_ENV, OXYGEN_SECONDS, isWorldId, SHOP, CATALOG, buildKota, buildLobby, DEFAULT_AVATAR, type ItemOffer, type WalletMsg, type VehicleStateMsg, type Vendor, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
 import { Engine } from './engine/engine.js';
 import { Input } from './engine/input.js';
 import { FollowCamera } from './engine/camera.js';
@@ -98,12 +98,14 @@ const hud = new Hud({
 });
 hud.onMapOpen = () => {
   if (!player || !stage?.points) return;
-  showMap(player.body.x, player.body.z, pointList());
+  showMap(player.body.x, player.body.z, pointList(), isWorldId(stage.scene) ? stage.scene : 'kota');
 };
 
 function pointList() {
   return (stage?.points?.list() ?? []).map((e) => ({ x: e.p.x, z: e.p.z, done: e.done, surprise: e.p.surprise }));
 }
+
+const WORLD_COLOR: Record<WorldId, string> = { kota: '#FF8A3D', hutan: '#2FBF71', laut: '#1FB6D9', angkasa: '#8B5CF6' };
 
 // ───────────────────────── adegan ─────────────────────────
 function loadStage(scene: SceneId) {
@@ -114,10 +116,21 @@ function loadStage(scene: SceneId) {
   mobility?.setCity(stage.living, stage.living ? stage.collision : null);
   if (session) stage.setEnabledWorlds(session.worlds);
   applyQuality();
-  if (scene === 'kota') {
+  if (!isWorldId(scene)) {
     engine.scene.background = new THREE.Color(0x9fd8ff);
+    (engine.scene.fog as THREE.Fog | null)?.color.setHex(0xcfe8ff);
   }
+  oxygen = OXYGEN_SECONDS;
 }
+
+/** Sapaan & tips saat masuk tiap dunia. */
+const WELCOME: Record<WorldId, string> = {
+  kota: 'Selamat datang di Dunia Kota! Cari tanda tanya kuning.',
+  hutan: 'Selamat datang di Dunia Hutan! Jelajahi rimba, desa rumah pohon, danau, dan gua kristal.',
+  laut: 'Selamat datang di Dunia Laut! Tahan tombol SELAM untuk menyelam — perhatikan oksigenmu. Naik perahu atau kapal selam di dermaga.',
+  angkasa: 'Selamat datang di Luar Angkasa! Gravitasi rendah: lompatanmu jauh lebih tinggi. Naiki batu melayang menuju Observatorium.',
+};
+let oxygen = OXYGEN_SECONDS;
 
 async function goScene(scene: SceneId): Promise<boolean> {
   if (busy) return false;
@@ -146,7 +159,7 @@ async function goScene(scene: SceneId): Promise<boolean> {
     cam.snap();
     orbit = false;
     hud.setMode(scene === 'lobi' ? 'lobi' : scene === 'podium' ? 'none' : 'dunia');
-    if (scene === 'kota') notify('Selamat datang di Dunia Kota! Cari tanda tanya kuning.', 'misi');
+    if (isWorldId(scene)) notify(WELCOME[scene], 'misi');
     return true;
   } finally {
     busy = false;
@@ -247,6 +260,18 @@ const mobilityHost: MobilityHost = {
   startMission: (v: Vendor) => void openQuestion(v.id),
   missionDone: (id) => !!stage?.living?.vendors.done.has(id),
   toLobby: () => void goScene('lobi'),
+  gateWorlds: () =>
+    WORLDS.map((w) => {
+      const here = stage?.scene === w.id;
+      const open = !!session?.worlds.includes(w.id);
+      return {
+        id: w.id,
+        nama: w.nama,
+        ket: here ? 'Kamu sedang di sini' : open ? w.mapel : 'Belum dibuka gurumu',
+        color: WORLD_COLOR[w.id],
+        go: !here && open ? () => void enterWorldFlow(w.id) : null,
+      };
+    }),
   notify: (t, k) => notify(t, k ?? 'info'),
   setBusy: (b) => {
     input.enabled = !b;
@@ -506,6 +531,9 @@ engine.onFrame((dt, t) => {
   cam.distance = Math.max(cam.minDist, Math.min(cam.maxDist, cam.distance + input.zoom));
   input.zoom = 0;
 
+  // Mode uji: tahan tombol SELAM / LOMPAT lewat input yang sama dengan pemain sungguhan
+  if (debug && debugHold.dive) input.dive = true;
+  if (debug && debugHold.jump) input.jump = true;
   // Autopilot khusus mode uji (?debug=1): berjalan biasa ke target lewat input yang sama — server tetap memvalidasi.
   if (debug && autopilot) {
     const dx = autopilot.x - player.body.x;
@@ -531,7 +559,30 @@ engine.onFrame((dt, t) => {
       void doAction();
     }
   } else if (!(mobility && mobility.update(dt, t))) player.update(dt, input, cam, stage.collision);
-  player.lowGravity = false;
+  player.lowGravity = isWorldId(stage.scene) && WORLD_ENV[stage.scene].lowGravity;
+  // Dunia Laut: oksigen berkurang saat kepala di bawah air (kecuali di kapal selam); habis → otomatis naik ke permukaan
+  if (isWorldId(stage.scene) && WORLD_ENV[stage.scene].oxygen && !mobility?.driving) {
+    const under = player.body.submerged >= 0.98;
+    document.body.classList.toggle('bawah-air', under);
+    // tampilan bawah air: langit & kabut biru laut
+    const sky = under ? 0x1f6f9f : WORLD_ENV[stage.scene].sky;
+    const bg = engine.scene.background as THREE.Color | null;
+    if (bg && bg.getHex() !== sky) {
+      bg.setHex(sky);
+      (engine.scene.fog as THREE.Fog | null)?.color.setHex(under ? 0x1f6f9f : WORLD_ENV[stage.scene].fog);
+    }
+    oxygen = under ? Math.max(0, oxygen - dt) : Math.min(OXYGEN_SECONDS, oxygen + dt * 6);
+    hud.setOxygen(under || oxygen < OXYGEN_SECONDS ? oxygen / OXYGEN_SECONDS : null);
+    if (under && oxygen <= 0) {
+      const w = stage.collision.waterAt(player.body.x, player.body.z);
+      player.teleport(player.body.x, (w?.surface ?? 0) - 1.2, player.body.z, player.ry);
+      oxygen = OXYGEN_SECONDS * 0.3;
+      notify('Oksigen habis! Kamu dibawa naik ke permukaan. Ambil napas dulu ya.', 'peringatan');
+    }
+  } else {
+    hud.setOxygen(null);
+    document.body.classList.remove('bawah-air');
+  }
 
   const b = player.body;
   if (b.y < -30) {
@@ -564,11 +615,12 @@ engine.onFrame((dt, t) => {
     net.sendState({ scene: stage.scene, x: round(b.x), y: round(b.y), z: round(b.z), ry: round(player.ry), anim: player.anim, riding, ...(mobility?.netExtras() ?? {}) });
   }
   hud.updateTimer(session, net.serverNow());
-  if (stage.scene === 'kota') hud.drawMinimap(b.x, b.z, cam.yaw, player.ry, pointList(), remote.positions());
+  if (isWorldId(stage.scene)) hud.drawMinimap(b.x, b.z, cam.yaw, player.ry, pointList(), remote.positions(), stage.scene);
   if (debug) debugEl.textContent = `FPS ${engine.fps.toFixed(0)} · ${engine.level} · chunk ${JSON.stringify(stage.view?.stats())} · pemain lain ${remote.count()} · draw ${engine.renderer.info.render.calls}`;
   exposeState();
 });
 let autopilot: { x: number; z: number } | null = null;
+const debugHold = { dive: false, jump: false };
 if (debug) {
   (window as unknown as { __eduDebug: unknown }).__eduDebug = {
     goTo: (x: number, z: number) => void (autopilot = { x, z }),
@@ -584,7 +636,14 @@ if (debug) {
     /** Uji keamanan (mode ?debug=1): kirim permintaan mentah — server tetap memvalidasi semuanya. */
     raw: { enterVehicle: (id: string) => net.enterVehicle(id), useRift: (id: string) => net.useRift(id), setJetpack: (on: boolean, st?: string) => net.setJetpack(on, st), buy: (v: string, i: string, q: number) => mobilityHost.buy(v, i, q), useItem: (i: string) => mobilityHost.useItem(i), give: (to: string, i: string, q: number) => offerApi.create('hadiah', to, { itemId: i, qty: q }, null), respond: (id: string, a: boolean) => offerApi.respond(id, a), cancel: (id: string) => offerApi.cancel(id) },
     friends: (r = 50) => (player ? remote.near(player.body.x, player.body.z, r) : []),
-    vendors: () => stage?.living?.layout.vendors.map((v) => ({ id: v.id, x: v.x, z: v.z })) ?? [],
+    vendors: () => stage?.living?.layout.vendors.map((v) => ({ id: v.id, x: v.x, y: v.y, z: v.z })) ?? [],
+    rifts: () => stage?.living?.layout.rifts.map((r) => ({ id: r.id, x: r.x, y: r.y, z: r.z, to: r.to })) ?? [],
+    exitVehicle: () => (mobility?.driving ? mobility.act({ kind: 'turun', id: mobility.driving.id, label: '' }) : null),
+    hold: (k: Partial<typeof debugHold>) => {
+      Object.assign(debugHold, k);
+      if (!debugHold.dive) input.dive = false;
+      if (!debugHold.jump) input.jump = false;
+    },
   };
 }
 const round = (v: number) => Math.round(v * 100) / 100;
@@ -595,6 +654,7 @@ if (debug) document.body.appendChild(debugEl);
 function exposeState() {
   (window as unknown as { __edu: unknown }).__edu = {
     scene: stage?.scene ?? null,
+    env: { lowGravity: !!player?.lowGravity, oxygen: round(oxygen), oxygenBar: hud.oxygenShown, swimming: !!player?.body.swimming, submerged: player ? round(player.body.submerged) : 0, sky: stage ? (engine.scene.background as THREE.Color | null)?.getHex() ?? null : null },
     pos: player ? { x: player.body.x, y: player.body.y, z: player.body.z } : null,
     remotes: remote.count(),
     remoteChars: remote.characters(),

@@ -5,7 +5,7 @@
  */
 import { io, type Socket } from 'socket.io-client';
 import QRCode from 'qrcode';
-import { EV, KOTA_WORLD_HALF, KOTA_ZONES, WORLDS, CHARACTERS, CATALOG, OFFER_STATUS_LABEL, type OfferStatus, type SessionPublicState, type AvatarConfig } from '@eduverse/shared';
+import { EV, WORLD_ENV, worldZones, isWorldId, WORLDS, type WorldId, CHARACTERS, CATALOG, OFFER_STATUS_LABEL, type OfferStatus, type SessionPublicState, type AvatarConfig } from '@eduverse/shared';
 import { h, api, btn, toast, onLeave, fmtDate, modal, download, getToken } from '../lib.js';
 import { SERVER_URL } from '../server.js';
 
@@ -104,6 +104,17 @@ export async function liveView(id: string): Promise<HTMLElement> {
   const feedEl = h('div', { class: 'feed' });
   const heat = h('canvas', { class: 'heat', width: 600, height: 600 }) as HTMLCanvasElement;
   const zoneList = h('div', { class: 'col', style: 'gap:4px' });
+  // Peta sebaran per dunia (guru memilih tab dunia)
+  let heatWorld: WorldId = 'kota';
+  const heatTitle = h('h2', { style: 'margin:0' }, 'Sebaran Siswa — Dunia Kota');
+  const heatTabs = h('div', { class: 'row wrap', style: 'gap:6px' });
+  const renderHeatTabs = () =>
+    heatTabs.replaceChildren(
+      ...live.state.worlds.filter(isWorldId).map((w) => {
+        const n = live.students.filter((st) => st.online && st.scene === w).length;
+        return h('button', { type: 'button', class: `btn kecil ${w === heatWorld ? 'biru' : 'putih'}`, 'data-heat-world': w, onclick: () => ((heatWorld = w), renderHeatTabs(), renderHeat()) }, `${WORLDS.find((x) => x.id === w)?.nama ?? w} (${n})`);
+      }),
+    );
   const resultsEl = h('div', { class: 'col' });
 
   function renderControls() {
@@ -227,14 +238,16 @@ export async function liveView(id: string): Promise<HTMLElement> {
     const ctx = heat.getContext('2d');
     if (!ctx) return;
     const W = heat.width;
-    // Peta mencakup kota + Bandara (timur) + Kawasan Gedung Tinggi (barat)
-    const HALF = KOTA_WORLD_HALF;
+    // Dunia Kota mencakup kota + Bandara (timur) + Kawasan Gedung Tinggi (barat)
+    const HALF = WORLD_ENV[heatWorld].half;
+    heatTitle.textContent = `Sebaran Siswa — ${WORLDS.find((x) => x.id === heatWorld)?.nama ?? heatWorld}`;
+    const zones = worldZones(heatWorld);
     const sc = W / (HALF * 2);
     const px = (x: number) => (x + HALF) * sc;
     const pz = (z: number) => (z + HALF) * sc;
-    ctx.fillStyle = '#9ED98F';
+    ctx.fillStyle = heatWorld === 'kota' ? '#9ED98F' : WORLD_ENV[heatWorld].mapBg;
     ctx.fillRect(0, 0, W, W);
-    for (const zn of KOTA_ZONES) {
+    for (const zn of zones) {
       const n = live.zones[zn.id] ?? 0;
       ctx.fillStyle = `#${zn.color.toString(16).padStart(6, '0')}${n ? 'AA' : '44'}`;
       for (const r of zn.rects) ctx.fillRect(px(r.x - r.hx), pz(r.z - r.hz), r.hx * 2 * sc, r.hz * 2 * sc);
@@ -242,12 +255,12 @@ export async function liveView(id: string): Promise<HTMLElement> {
     ctx.fillStyle = '#FFFFFF';
     ctx.font = 'bold 13px Nunito, sans-serif';
     ctx.textAlign = 'center';
-    for (const zn of KOTA_ZONES) {
+    for (const zn of zones) {
       const n = live.zones[zn.id] ?? 0;
       if (n) ctx.fillText(`${n}`, px(zn.label.x), pz(zn.label.z) - 8);
     }
     for (const s of live.students) {
-      if (!s.online || s.scene !== 'kota' || s.x === null || s.z === null) continue;
+      if (!s.online || s.scene !== heatWorld || s.x === null || s.z === null) continue;
       ctx.beginPath();
       ctx.arc(px(s.x), pz(s.z), 6, 0, Math.PI * 2);
       ctx.fillStyle = '#1E2A4A';
@@ -257,7 +270,7 @@ export async function liveView(id: string): Promise<HTMLElement> {
       ctx.stroke();
     }
     zoneList.replaceChildren(
-      ...KOTA_ZONES.map((zn) =>
+      ...zones.map((zn) =>
         h('div', { class: 'row', style: 'gap:8px' }, h('span', { class: 'dot', style: `background:#${zn.color.toString(16).padStart(6, '0')}` }), h('span', { class: 'grow' }, zn.nama), h('b', null, String(live.zones[zn.id] ?? 0))),
       ),
     );
@@ -406,6 +419,8 @@ export async function liveView(id: string): Promise<HTMLElement> {
     renderControls();
     renderStudents();
     renderLeaderboard();
+    if (!live.state.worlds.includes(heatWorld) && isWorldId(live.state.worlds[0])) heatWorld = live.state.worlds[0];
+    renderHeatTabs();
     renderHeat();
     renderInteraksi();
     tick();
@@ -490,7 +505,7 @@ export async function liveView(id: string): Promise<HTMLElement> {
       'div',
       { class: 'grid', style: 'grid-template-columns:repeat(auto-fit,minmax(340px,1fr))' },
       h('div', { class: 'card col' }, h('h2', null, 'Papan Skor Langsung'), lbEl),
-      h('div', { class: 'card col' }, h('h2', null, 'Sebaran Siswa — Dunia Kota'), h('div', { class: 'row', style: 'align-items:flex-start;flex-wrap:nowrap' }, h('div', { style: 'flex:1.3;min-width:0' }, heat), h('div', { style: 'flex:1;min-width:0;font-size:14px' }, zoneList))),
+      h('div', { class: 'card col' }, heatTitle, heatTabs, h('div', { class: 'row', style: 'align-items:flex-start;flex-wrap:nowrap' }, h('div', { style: 'flex:1.3;min-width:0' }, heat), h('div', { style: 'flex:1;min-width:0;font-size:14px' }, zoneList))),
     ),
     h('div', { class: 'card col' }, h('h2', null, 'Siswa'), h('div', { class: 'tablewrap' }, h('table', null, h('thead', null, h('tr', null, ...['Absen', 'Nama', 'Status', 'Lokasi', 'Poin', 'Uang · Tas', 'Karakter', 'Jawaban', 'Progres', 'Peringkat', 'Aksi'].map((t) => h('th', null, t)))), studentsBody))),
     h('div', { class: 'card col' }, h('h2', null, 'Umpan Jawaban Langsung'), feedEl),

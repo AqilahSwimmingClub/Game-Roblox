@@ -9,5 +9,6 @@ export * from './kota/builder.js';
 export * from './kota/layout.js';
 export * from './kota/living.js';
 export * from './kota/shop.js';
+export * from './worlds/index.js';
 export * from './lobby.js';
 export * from './characters.js';

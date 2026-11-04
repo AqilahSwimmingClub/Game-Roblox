@@ -1,5 +1,5 @@
 /** Penanda peta Kota Hidup: lubang dimensi, stasiun jetpack, area parkir/kendaraan, pedagang, bandara. */
-import { buildKota } from '@eduverse/shared';
+import { worldLayout, type WorldId } from '@eduverse/shared';
 
 export type LandmarkKind = 'portal' | 'jetpack' | 'parkir' | 'pesawat' | 'pedagang';
 export interface Landmark {
@@ -9,11 +9,12 @@ export interface Landmark {
   label: string;
 }
 
-let cache: Landmark[] | null = null;
+const cache = new Map<WorldId, Landmark[]>();
 
-export function landmarks(): Landmark[] {
-  if (cache) return cache;
-  const L = buildKota().living;
+export function landmarks(world: WorldId = 'kota'): Landmark[] {
+  const hit = cache.get(world);
+  if (hit) return hit;
+  const L = worldLayout(world).living;
   const out: Landmark[] = [];
   for (const r of L.rifts) if (!r.secret) out.push({ kind: 'portal', x: r.x, z: r.z, label: r.to ? r.nama : 'Gerbang Antardunia' });
   for (const j of L.jetpacks) out.push({ kind: 'jetpack', x: j.x, z: j.z, label: `Jetpack ${j.label}` });
@@ -26,7 +27,7 @@ export function landmarks(): Landmark[] {
   }
   for (const g of groups) out.push({ kind: g.plane ? 'pesawat' : 'parkir', x: g.x, z: g.z, label: g.plane ? 'Pesawat' : 'Parkir' });
   for (const v of L.vendors) out.push({ kind: 'pedagang', x: v.x, z: v.z, label: v.nama });
-  cache = out;
+  cache.set(world, out);
   return out;
 }
 
@@ -37,8 +38,8 @@ const LETTER: Record<LandmarkKind, string> = { portal: '◎', jetpack: 'J', park
  * Gambar penanda di kanvas peta. tx/tz mengubah koordinat dunia → piksel; size = jari-jari ikon.
  * upright: sudut kanvas saat ini (radian) agar huruf tetap tegak pada peta mini yang berputar.
  */
-export function drawLandmarks(c: CanvasRenderingContext2D, tx: (x: number) => number, tz: (z: number) => number, size: number, opts: { upright?: number; labels?: boolean; clip?: number } = {}) {
-  for (const l of landmarks()) {
+export function drawLandmarks(c: CanvasRenderingContext2D, tx: (x: number) => number, tz: (z: number) => number, size: number, opts: { upright?: number; labels?: boolean; clip?: number; world?: WorldId } = {}) {
+  for (const l of landmarks(opts.world ?? 'kota')) {
     const x = tx(l.x);
     const y = tz(l.z);
     if (opts.clip !== undefined && (Math.abs(x) > opts.clip || Math.abs(y) > opts.clip)) continue;

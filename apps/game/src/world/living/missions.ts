@@ -3,7 +3,7 @@
  * - Mode kelas: TERIMA MISI membuka soal dari bank soal guru (dinilai server; mapel diutamakan sesuai tempat).
  * - Mode Demo: soal latihan dibuat lokal secara acak dari konteks pedagang (tidak disimpan, bukan nilai resmi).
  */
-import type { MissionKind, Vendor } from '@eduverse/shared';
+import type { MissionKind, Vendor, WorldId } from '@eduverse/shared';
 import { h, btn, ui } from '../../ui/dom.js';
 import { sfx } from '../audio.js';
 import { sfxLiving } from '../audio.js';
@@ -246,27 +246,36 @@ export function localMissionDialog(v: Vendor, m: LocalMission, onAnswer: (correc
 }
 
 /** Gerbang Antardunia: menampilkan dunia lain dengan jujur (belum tersedia) + kembali ke Lobi bila ada. */
-export function worldGateDialog(opts: { toLobby: (() => void) | null; onClose: () => void }) {
+export interface GateWorld {
+  id: WorldId;
+  nama: string;
+  ket: string;
+  color: string;
+  /** null = tidak bisa dipilih (alasan di `ket`). */
+  go: (() => void) | null;
+}
+
+/** Gerbang Antardunia: pindah ke dunia lain dengan identitas, skor, tas, dan uang yang sama (disimpan server). */
+export function worldGateDialog(opts: { toLobby: (() => void) | null; worlds?: GateWorld[]; onClose: () => void }) {
   closeDialog();
-  const card = (nama: string, ket: string, on: (() => void) | null, color: string) =>
+  const card = (nama: string, ket: string, on: (() => void) | null, color: string, id = '') =>
     h(
       'button',
-      { type: 'button', class: 'panel tipis', style: `padding:12px;text-align:left;border:3px solid ${color};cursor:${on ? 'pointer' : 'not-allowed'};opacity:${on ? 1 : 0.65}`, onclick: () => on?.() },
+      { type: 'button', class: 'panel tipis', 'data-gate': id, disabled: !on, style: `padding:12px;text-align:left;border:3px solid ${color};cursor:${on ? 'pointer' : 'not-allowed'};opacity:${on ? 1 : 0.65}`, onclick: () => on?.() },
       h('div', { style: 'font:700 18px Fredoka' }, nama),
       h('div', { style: 'font-weight:800;font-size:13px' }, ket),
     );
+  const worlds = opts.worlds ?? [];
   const panel = h(
     'div',
     { class: 'panel card col pop', style: 'max-width:min(560px,94vw);gap:10px;padding:16px' },
     h('h2', { style: 'margin:0' }, 'Gerbang Antardunia'),
-    h('p', { style: 'margin:0;font-weight:800' }, 'Portal ke dunia lain. Saat ini baru Dunia Kota yang tersedia.'),
+    h('p', { style: 'margin:0;font-weight:800' }, worlds.length ? 'Pilih dunia tujuan. Poin, tas, dan uangmu ikut terbawa.' : 'Mode Demo hanya memuat Dunia Kota. Masuk kelas untuk menjelajah dunia lain.'),
     h(
       'div',
       { style: 'display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px' },
-      card('Lobi Dunia', opts.toLobby ? 'Kembali ke lobi portal' : 'Hanya di mode kelas', opts.toLobby ? () => (closeDialog(), opts.toLobby!()) : null, '#3BA7FF'),
-      card('Dunia Hutan', 'Segera hadir', null, '#2FBF71'),
-      card('Dunia Laut', 'Segera hadir', null, '#1FB6D9'),
-      card('Dunia Luar Angkasa', 'Segera hadir', null, '#8B5CF6'),
+      card('Lobi Dunia', opts.toLobby ? 'Kembali ke lobi portal' : 'Hanya di mode kelas', opts.toLobby ? () => (closeDialog(), opts.onClose(), opts.toLobby!()) : null, '#3BA7FF', 'lobi'),
+      ...worlds.map((w) => card(w.nama, w.ket, w.go ? () => (closeDialog(), opts.onClose(), w.go!()) : null, w.color, w.id)),
     ),
     btn('Tutup', 'putih', () => (closeDialog(), opts.onClose())),
   );

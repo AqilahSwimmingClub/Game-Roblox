@@ -13,10 +13,12 @@ import {
   LIMITS,
   DEFAULT_SETTINGS,
   QUESTION_TYPE_LABEL,
-  buildKota,
   buildLobby,
-  zoneAt,
-  KOTA_ZONES,
+  worldLayout,
+  WORLD_ENV,
+  zoneIn,
+  findZone,
+  WATER_VEHICLES,
   QUESTION_SOURCE_LABEL,
   checkAnswer,
   parseAnswer,
@@ -544,7 +546,10 @@ export class SessionRuntime {
     let spawn: { x: number; y: number; z: number };
     if (scene === 'lobi') spawn = { ...buildLobby().spawnPoint, x: (rnd(80) - 40) / 10 };
     else if (scene === 'podium') spawn = { x: (rnd(200) - 100) / 10, y: 0.2, z: 14 };
-    else spawn = prev ?? { ...buildKota().spawnPoint, x: (rnd(120) - 60) / 10 };
+    else {
+      const sp = worldLayout(scene).spawnPoint;
+      spawn = prev ?? { ...sp, x: sp.x + (rnd(120) - 60) / 10 };
+    }
     p.x = spawn.x;
     p.y = spawn.y;
     p.z = spawn.z;
@@ -554,8 +559,8 @@ export class SessionRuntime {
     if (isWorldId(scene)) {
       void socket.join(this.worldRoom(scene));
       const w = this.ensureWorld(scene);
-      if (scene === 'kota') setTimeout(() => this.emitVehicles(p.instance), 0);
-      return { ok: true, spawn, points: this.pointList(w), done: this.doneList(p.student), vehicles: scene === 'kota' ? this.vehicleList(p.instance) : [], jetpack: p.hasJetpack, dompet: this.walletOf(p.student), offers: this.pendingOffersFor(p.student) };
+      setTimeout(() => this.emitVehicles(scene, p.instance), 0);
+      return { ok: true, spawn, points: this.pointList(w), done: this.doneList(p.student), vehicles: this.vehicleList(scene, p.instance), jetpack: p.hasJetpack, dompet: this.walletOf(p.student), offers: this.pendingOffersFor(p.student) };
     }
     return { ok: true, spawn };
   }
@@ -579,7 +584,7 @@ export class SessionRuntime {
     const lim = MODE_LIMITS[mode];
     const maxSpeed = Math.max(lim.maxSpeed, now < p.graceUntil ? p.graceSpeed : 0);
     const horiz = Math.hypot(x - p.x, z - p.z);
-    const half = p.scene === 'lobi' ? 46 : p.scene === 'podium' ? 40 : KOTA_WORLD_HALF + 10;
+    const half = p.scene === 'lobi' ? 46 : p.scene === 'podium' ? 40 : isWorldId(p.scene) ? WORLD_ENV[p.scene].half + 10 : KOTA_WORLD_HALF + 10;
     const tooFast = horiz > maxSpeed * dt * 1.35 + 1.5;
     const outside = Math.abs(x) > half || Math.abs(z) > half || y > lim.maxY + 5;
     const fell = y < -40;
@@ -610,35 +615,40 @@ export class SessionRuntime {
 
   // ───────────────────────────── kendaraan, jetpack, lubang dimensi ─────────────────────────────
 
-  private vehicleSets = new Map<number, Map<string, VehicleStateMsg & { idleSince: number }>>();
+  /** Kendaraan per dunia per instance (kunci "dunia:instance"). */
+  private vehicleSets = new Map<string, Map<string, VehicleStateMsg & { idleSince: number }>>();
 
-  private vehiclesOf(instance: number) {
-    let set = this.vehicleSets.get(instance);
+  private vehiclesOf(world: SceneId, instance: number) {
+    const key = `${world}:${instance}`;
+    let set = this.vehicleSets.get(key);
     if (!set) {
       set = new Map();
-      for (const v of buildKota().living.vehicles) set.set(v.id, { id: v.id, kind: v.kind, x: v.x, y: v.y, z: v.z, heading: v.heading, color: v.color, driver: null, idleSince: Date.now() });
-      this.vehicleSets.set(instance, set);
+      if (isWorldId(world))
+        for (const v of worldLayout(world).living.vehicles) set.set(v.id, { id: v.id, kind: v.kind, x: v.x, y: v.y, z: v.z, heading: v.heading, color: v.color, driver: null, idleSince: Date.now() });
+      this.vehicleSets.set(key, set);
     }
     return set;
   }
 
-  vehicleList(instance: number): VehicleStateMsg[] {
-    return [...this.vehiclesOf(instance).values()].map(({ idleSince: _i, ...v }) => v);
+  vehicleList(world: SceneId, instance: number): VehicleStateMsg[] {
+    return [...this.vehiclesOf(world, instance).values()].map(({ idleSince: _i, ...v }) => v);
   }
 
-  private emitVehicles(instance: number) {
-    const list = this.vehicleList(instance);
-    for (const o of this.players.values()) if (o.scene === 'kota' && o.instance === instance) o.socket.emit(EV.vehicles, list);
+  private emitVehicles(world: SceneId, instance: number) {
+    if (!isWorldId(world)) return;
+    const list = this.vehicleList(world, instance);
+    for (const o of this.players.values()) if (o.scene === world && o.instance === instance) o.socket.emit(EV.vehicles, list);
   }
 
   /** Lepaskan kendaraan yang sedang dikendarai: kendaraan tetap diparkir di posisi terakhir yang sah. */
   private releaseVehicle(p: Player) {
     if (!p.vehicleId) return;
-    const v = this.vehiclesOf(p.instance).get(p.vehicleId);
+    const v = this.vehiclesOf(p.scene, p.instance).get(p.vehicleId);
     if (v && v.driver === p.socket.id) {
       v.driver = null;
       v.x = p.x;
-      v.y = v.kind === 'pesawat' ? Math.min(p.y, 0.05) : Math.max(0, p.y);
+      // kendaraan air tetap di air (kapal selam di bawah permukaan); pesawat di darat; lainnya di atas tanah
+      v.y = v.kind === 'pesawat' ? Math.min(p.y, 0.05) : WATER_VEHICLES.includes(v.kind as VehicleKind) ? Math.min(0, p.y) : Math.max(0, p.y);
       v.z = p.z;
       v.heading = p.ry;
       v.idleSince = Date.now();
@@ -647,15 +657,15 @@ export class SessionRuntime {
     p.graceUntil = Date.now() + 2500;
     p.vehicleId = null;
     p.mode = 'jalan';
-    this.emitVehicles(p.instance);
+    this.emitVehicles(p.scene, p.instance);
   }
 
   enterVehicle(socket: Socket, id: unknown): { ok: true; vehicle: VehicleStateMsg } | { ok: false; error: string } {
     const p = this.players.get(socket.id);
-    if (!p?.student || p.scene !== 'kota') return { ok: false, error: 'Tidak ada kendaraan di sini.' };
+    if (!p?.student || !isWorldId(p.scene)) return { ok: false, error: 'Tidak ada kendaraan di sini.' };
     if (p.mode !== 'jalan' || p.riding) return { ok: false, error: 'Turun dulu dari kendaraanmu.' };
     if (p.pending) return { ok: false, error: 'Selesaikan soal dulu.' };
-    const v = typeof id === 'string' ? this.vehiclesOf(p.instance).get(id) : undefined;
+    const v = typeof id === 'string' ? this.vehiclesOf(p.scene, p.instance).get(id) : undefined;
     if (!v) return { ok: false, error: 'Kendaraan tidak ditemukan.' };
     if (v.driver && v.driver !== socket.id) {
       if (this.players.has(v.driver)) return { ok: false, error: 'Kendaraan ini sedang dipakai teman.' };
@@ -672,7 +682,7 @@ export class SessionRuntime {
     p.z = v.z;
     p.ry = v.heading;
     p.lastStateAt = Date.now();
-    this.emitVehicles(p.instance);
+    this.emitVehicles(p.scene, p.instance);
     const { idleSince: _i, ...out } = v;
     return { ok: true, vehicle: out };
   }
@@ -702,12 +712,12 @@ export class SessionRuntime {
 
   setJetpack(socket: Socket, raw: unknown): { ok: true; on: boolean } | { ok: false; error: string } {
     const p = this.players.get(socket.id);
-    if (!p?.student || p.scene !== 'kota') return { ok: false, error: 'Jetpack hanya ada di Dunia Kota.' };
+    if (!p?.student || !isWorldId(p.scene)) return { ok: false, error: 'Jetpack tidak tersedia di sini.' };
     const m = (raw ?? {}) as { on?: unknown; stationId?: unknown };
     if (m.on === true) {
       if (p.vehicleId) return { ok: false, error: 'Turun dari kendaraan dulu.' };
       if (!p.hasJetpack) {
-        const st = buildKota().living.jetpacks.find((j) => j.id === m.stationId);
+        const st = worldLayout(p.scene).living.jetpacks.find((j) => j.id === m.stationId);
         if (!st || Math.hypot(p.x - st.x, p.z - st.z) > 5 || Math.abs(p.y - st.y) > 4) return { ok: false, error: 'Ambil jetpack di Stasiun Jetpack.' };
         p.hasJetpack = true;
       }
@@ -724,8 +734,8 @@ export class SessionRuntime {
 
   useRift(socket: Socket, riftId: unknown): { ok: true; target: { x: number; y: number; z: number; ry: number }; nama: string } | { ok: false; error: string } {
     const p = this.players.get(socket.id);
-    if (!p?.student || p.scene !== 'kota') return { ok: false, error: 'Lubang dimensi tidak aktif di sini.' };
-    const rifts = buildKota().living.rifts;
+    if (!p?.student || !isWorldId(p.scene)) return { ok: false, error: 'Lubang dimensi tidak aktif di sini.' };
+    const rifts = worldLayout(p.scene).living.rifts;
     const r = rifts.find((x) => x.id === riftId);
     if (!r) return { ok: false, error: 'Lubang dimensi tidak dikenal.' };
     if (p.vehicleId) return { ok: false, error: 'Turun dari kendaraan sebelum masuk lubang dimensi.' };
@@ -756,10 +766,10 @@ export class SessionRuntime {
   async buy(socket: Socket, raw: unknown): Promise<({ ok: true; total: number; sisa: number; itemId: string; qty: number } & WalletMsg) | { ok: false; error: string; kurang?: number }> {
     const p = this.players.get(socket.id);
     const s = p?.student;
-    if (!p || !s || p.scene !== 'kota') return { ok: false, error: 'Toko hanya ada di Dunia Kota.' };
+    if (!p || !s || !isWorldId(p.scene)) return { ok: false, error: 'Tidak ada toko di sini.' };
     if (this.status === 'selesai') return { ok: false, error: 'Permainan sudah selesai.' };
     const m = (raw ?? {}) as { vendorId?: unknown; itemId?: unknown; qty?: unknown };
-    const v = buildKota().living.vendors.find((x) => x.id === m.vendorId);
+    const v = worldLayout(p.scene).living.vendors.find((x) => x.id === m.vendorId);
     if (!v || !v.items.length) return { ok: false, error: 'Pedagang ini tidak berjualan.' };
     if (Math.hypot(p.x - v.x, p.z - v.z) > SHOP.jarakBeli || Math.abs(p.y - v.y) > 3) return { ok: false, error: 'Mendekatlah ke pedagang untuk membeli.' };
     const now = Date.now();
@@ -1062,8 +1072,10 @@ export class SessionRuntime {
   /** Kendaraan yang ditinggal jauh dari tempat parkirnya > 4 menit kembali sendiri (tidak menumpuk/terjebak). */
   private tidyVehicles() {
     const now = Date.now();
-    const home = new Map(buildKota().living.vehicles.map((v) => [v.id, v]));
-    for (const [inst, set] of this.vehicleSets) {
+    for (const [key, set] of this.vehicleSets) {
+      const [world, instS] = key.split(':') as [SceneId, string];
+      const inst = Number(instS);
+      const home = new Map(isWorldId(world) ? worldLayout(world).living.vehicles.map((v) => [v.id, v]) : []);
       let changed = false;
       for (const v of set.values()) {
         if (v.driver && !this.players.has(v.driver)) {
@@ -1080,14 +1092,14 @@ export class SessionRuntime {
           changed = true;
         }
       }
-      if (changed) this.emitVehicles(inst);
+      if (changed) this.emitVehicles(world, inst);
     }
   }
 
   safeSpawn(scene: SceneId) {
     if (scene === 'lobi') return { ...buildLobby().spawnPoint };
     if (scene === 'podium') return { x: 0, y: 0.2, z: 14 };
-    return { ...buildKota().spawnPoint };
+    return { ...worldLayout(scene).spawnPoint };
   }
 
   emote(socket: Socket, id: unknown) {
@@ -1099,8 +1111,8 @@ export class SessionRuntime {
 
   useLift(socket: Socket, liftId: unknown) {
     const p = this.players.get(socket.id);
-    if (!p?.student || p.scene !== 'kota') return { ok: false, error: 'Tidak ada lift di sini.' };
-    const lift = buildKota().lifts.find((l) => l.id === liftId);
+    if (!p?.student || !isWorldId(p.scene)) return { ok: false, error: 'Tidak ada lift di sini.' };
+    const lift = worldLayout(p.scene).lifts.find((l) => l.id === liftId);
     if (!lift) return { ok: false, error: 'Lift tidak ditemukan.' };
     if (Math.hypot(p.x - lift.x, p.z - lift.z) > LIMITS.interactDistance + 2) return { ok: false, error: 'Mendekatlah ke lift.' };
     if (lift.locked && p.student.correct < 3) return { ok: false, error: 'Lift terkunci. Jawab 3 soal dengan benar untuk membukanya.' };
@@ -1120,7 +1132,7 @@ export class SessionRuntime {
     if (wp) return wp;
     wp = { active: new Map(), cooldown: new Map(), pool: [], poolExhausted: false, poolLoading: null };
     this.worlds.set(w, wp);
-    const spawns = w === 'kota' ? buildKota().spawns : [];
+    const spawns = worldLayout(w).spawns;
     // Kepadatan: aktifkan sebagian titik di tiap zona (dipilih acak, merata per zona)
     const byZone = new Map<string, SpawnMarker[]>();
     for (const s of spawns) {
@@ -1233,7 +1245,7 @@ export class SessionRuntime {
 
   private toPublic(pd: Pending): PublicQuestion {
     const q = pd.question;
-    const zone = KOTA_ZONES.find((z) => z.id === pd.zone);
+    const zone = findZone(pd.zone);
     return {
       token: pd.token,
       type: q.type,
@@ -1385,7 +1397,7 @@ export class SessionRuntime {
     if (!wp || !pt) return;
     wp.active.delete(pointId);
     wp.cooldown.set(pointId, Date.now() + 30_000);
-    const candidates = (w === 'kota' ? buildKota().spawns : []).filter((s) => s.zone === pt.zone && !wp.active.has(s.id) && !wp.cooldown.has(s.id));
+    const candidates = worldLayout(w).spawns.filter((s) => s.zone === pt.zone && !wp.active.has(s.id) && !wp.cooldown.has(s.id));
     if (candidates.length) {
       const n = candidates[rnd(candidates.length)]!;
       wp.active.set(n.id, { ...n, surprise: false });
@@ -1630,7 +1642,7 @@ export class SessionRuntime {
         if (!all.length) continue;
         const pick = all[rnd(all.length)]!;
         pick.surprise = true;
-        const zone = KOTA_ZONES.find((z) => z.id === pick.zone);
+        const zone = findZone(pick.zone);
         this.play.to(this.worldRoom(w)).emit(EV.points, { world: w, points: this.pointList(wp) });
         this.play.to(this.worldRoom(w)).emit(EV.notify, { text: `⭐ Soal Kejutan (poin ×2) muncul di ${zone?.nama ?? pick.zone}!`, kind: 'sukses' });
       }
@@ -1662,7 +1674,7 @@ export class SessionRuntime {
       .sort((a, b) => a.absen - b.absen)
       .map((s) => {
         const p = byAbsen.get(s.absen);
-        const zone = p && p.scene === 'kota' ? zoneAt(p.x, p.z) : null;
+        const zone = p && isWorldId(p.scene) ? zoneIn(p.scene, p.x, p.z) : null;
         return {
           absen: s.absen,
           nama: s.nama,

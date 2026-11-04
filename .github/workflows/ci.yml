@@ -105,6 +105,10 @@ jobs:
         run: node tests/integration/offers.mjs
         env:
           OFFER_TTL_MS: '20000'
+      - name: Empat dunia (Kota, Hutan, Laut, Luar Angkasa) — guru + 3 siswa lintas dunia
+        run: node tests/e2e/worlds.mjs
+        env:
+          SHOTS: e2e-shots
       - name: Bank Soal Guru (sumber soal, impor Excel/Word, duplikat, pilih/acak, gambar, riwayat)
         run: node tests/integration/question-bank.mjs
       - run: node tests/security/abuse.mjs

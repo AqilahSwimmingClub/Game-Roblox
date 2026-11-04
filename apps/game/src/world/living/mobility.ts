@@ -15,8 +15,8 @@ import { ANIM } from '../../engine/avatar.js';
 import type { LocalPlayer } from '../localPlayer.js';
 import type { LivingCity } from './index.js';
 import { buildVehicle, buildJetpack, disposeModel, type VehicleModel } from './meshes.js';
-import { newBody, stepGround, stepPlane, exitSpot, poseModel, vehicleActionLabel, type VehicleBody, type DriveInput } from './vehicles.js';
-import { vendorDialog, worldGateDialog, riftTransition, dialogOpen } from './missions.js';
+import { newBody, stepGround, stepPlane, stepWater, exitSpot, poseModel, vehicleActionLabel, type VehicleBody, type DriveInput } from './vehicles.js';
+import { vendorDialog, worldGateDialog, riftTransition, dialogOpen, type GateWorld } from './missions.js';
 import { engineSound, sfxLiving } from '../audio.js';
 import { h } from '../../ui/dom.js';
 import { formatRp } from '@eduverse/shared';
@@ -31,6 +31,8 @@ export interface MobilityHost {
   startMission(v: Vendor): void;
   missionDone(id: string): boolean;
   toLobby: (() => void) | null;
+  /** Dunia tujuan Gerbang Antardunia (mode kelas); kosong di Mode Demo. */
+  gateWorlds?: () => GateWorld[];
   notify(text: string, kind?: string): void;
   /** Dipanggil saat dialog dibuka/ditutup (agar input jalan berhenti). */
   setBusy(busy: boolean): void;
@@ -58,7 +60,7 @@ interface Driving {
   safeT: number;
 }
 
-const CAM_DIST: Record<VehicleKind, number> = { sepeda: 6, motor: 7, mobil: 9, bus: 15, pesawat: 17 };
+const CAM_DIST: Record<VehicleKind, number> = { sepeda: 6, motor: 7, mobil: 9, bus: 15, pesawat: 17, perahu: 9, kapalselam: 10 };
 
 /** Tombol tekan-tahan (pointer) → callback down/up. */
 function holdBtn(label: string, cls: string, set: (v: boolean) => void) {
@@ -208,8 +210,8 @@ export class Mobility {
     const veh = this.driving?.kind;
     document.body.classList.toggle('mv-drive', !!veh);
     document.body.classList.toggle('mv-jet', m === 'jetpack');
-    this.setDrive.style.display = veh && veh !== 'pesawat' ? '' : 'none';
-    this.setPlane.style.display = veh === 'pesawat' ? '' : 'none';
+    this.setDrive.style.display = veh && veh !== 'pesawat' && veh !== 'kapalselam' ? '' : 'none';
+    this.setPlane.style.display = veh === 'pesawat' || veh === 'kapalselam' ? '' : 'none';
     this.setJet.style.display = m === 'jetpack' ? '' : 'none';
     this.jetToggle.style.display = this.living && this.hasJetpack && m === 'jalan' ? '' : 'none';
     this.walletBtn.style.display = this.living && !veh ? '' : 'none';
@@ -218,7 +220,11 @@ export class Mobility {
     this.hintEl.textContent =
       veh === 'pesawat'
         ? 'W/S gas · A/D belok · Spasi naik · C turun · E keluar (setelah mendarat)'
-        : veh
+        : veh === 'kapalselam'
+          ? 'W maju · S mundur · A/D belok · Spasi naik · C menyelam · E keluar'
+          : veh === 'perahu'
+            ? 'W maju · S mundur · A/D belok · E turun (dekat dermaga/pantai)'
+            : veh
           ? 'W gas · S rem/mundur · A/D belok · H klakson · E turun'
           : 'WASD gerak · Spasi naik · C turun · F matikan jetpack · B tas';
     if (!this.touch) for (const b of this.el.querySelectorAll<HTMLElement>('.mv-set')) b.classList.add('ringkas');
@@ -294,7 +300,16 @@ export class Mobility {
       this.cam.yaw = v.heading + Math.PI;
       this.cam.snap();
       sfxLiving.door();
-      this.host.notify(kind === 'pesawat' ? 'Nyalakan mesin: tahan GAS (W). Saat cukup cepat di landasan, tahan NAIK (Spasi) untuk lepas landas!' : `Kamu mengendarai ${VEHICLE_SPEC[kind].nama}. Patuhi lampu lalu lintas & lajur kiri ya!`, 'info');
+      this.host.notify(
+        kind === 'pesawat'
+          ? 'Nyalakan mesin: tahan GAS (W). Saat cukup cepat di landasan, tahan NAIK (Spasi) untuk lepas landas!'
+          : kind === 'kapalselam'
+            ? 'Kapal selam siap! Tahan TURUN untuk menyelam ke terumbu karang — di dalam kapal selam oksigen tidak berkurang.'
+            : kind === 'perahu'
+              ? 'Perahu siap berlayar! Jelajahi pulau-pulau dan ambil botol pesan yang terapung.'
+              : `Kamu mengendarai ${VEHICLE_SPEC[kind].nama}. Patuhi lampu lalu lintas & lajur kiri ya!`,
+        'info',
+      );
       this.refreshUi();
     } finally {
       this.busy = false;
@@ -402,7 +417,7 @@ export class Mobility {
         di.throttle = 0;
         di.brake = true;
       }
-      const ev = d.kind === 'pesawat' ? stepPlane(world, d.body, di, dt) : stepGround(world, d.body, di, dt);
+      const ev = d.kind === 'pesawat' ? stepPlane(world, d.body, di, dt) : d.kind === 'perahu' || d.kind === 'kapalselam' ? stepWater(world, d.body, di, dt) : stepGround(world, d.body, di, dt);
       // tabrakan dengan kendaraan NPC → memantul pelan (aman)
       for (const c of living.traffic.carsNear(d.body.x, d.body.z, 2.6)) {
         if (d.body.y > 2) break;
@@ -531,7 +546,7 @@ export class Mobility {
   private async enterRift(r: Rift, t: number) {
     if (!r.to) {
       this.host.setBusy(true);
-      worldGateDialog({ toLobby: this.host.toLobby, onClose: () => this.host.setBusy(false) });
+      worldGateDialog({ toLobby: this.host.toLobby, worlds: this.host.gateWorlds?.() ?? [], onClose: () => this.host.setBusy(false) });
       return;
     }
     this.busy = true;

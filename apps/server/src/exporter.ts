@@ -45,7 +45,7 @@ export async function sessionResults(sessionId: string): Promise<{ info: Session
             COALESCE(a.question_snapshot->>'subject', q.subject) AS subject,
             COALESCE(a.question_snapshot->>'topic', q.topic) AS topic,
             COALESCE(a.question_snapshot->>'prompt', q.prompt) AS prompt,
-            a.correct, a.points, a.attempt, a.zone
+            a.correct, a.points, a.attempt, a.zone, a.world
        FROM answers a JOIN session_roster r ON r.id = a.roster_id LEFT JOIN questions q ON q.id = a.question_id
       WHERE a.session_id = $1 ORDER BY a.created_at`,
     [sessionId],
@@ -57,6 +57,7 @@ export interface AnswerDetail {
   created_at: Date;
   absen: number;
   nickname: string;
+  world?: string | null;
   subject: string | null;
   topic: string | null;
   prompt: string | null;

@@ -38,7 +38,7 @@ export interface VehicleBody {
 
 export type DriveEvent = { type: 'bump' } | { type: 'crash'; text: string } | { type: 'recover'; text: string } | { type: 'boundary' } | { type: 'takeoff' } | { type: 'landing' };
 
-const LABEL: Record<VehicleKind, string> = { sepeda: 'Naik Sepeda', motor: 'Naik Motor', mobil: 'Masuk Mobil', bus: 'Kemudikan Bus', pesawat: 'Naik Pesawat' };
+const LABEL: Record<VehicleKind, string> = { sepeda: 'Naik Sepeda', motor: 'Naik Motor', mobil: 'Masuk Mobil', bus: 'Kemudikan Bus', pesawat: 'Naik Pesawat', perahu: 'Naik Perahu', kapalselam: 'Masuk Kapal Selam' };
 export const vehicleActionLabel = (k: VehicleKind) => LABEL[k];
 
 export function newBody(v: { kind: string; x: number; y: number; z: number; heading: number }): VehicleBody {
@@ -120,6 +120,59 @@ export function stepGround(world: CollisionWorld, b: VehicleBody, inp: DriveInpu
   else b.stuck = Math.max(0, b.stuck - dt);
   b.pitch = 0;
   b.roll = b.kind === 'motor' || b.kind === 'sepeda' ? -b.steerVis * Math.min(1, Math.abs(b.speed) / 8) * 0.5 : 0;
+  return ev;
+}
+
+/**
+ * Fisika kendaraan air: perahu di permukaan, kapal selam naik/turun di bawah permukaan (NAIK/TURUN).
+ * Hanya bergerak di air yang cukup dalam — tidak bisa naik ke pulau atau tembus karang/bangkai kapal.
+ */
+export function stepWater(world: CollisionWorld, b: VehicleBody, inp: DriveInput, dt: number): DriveEvent | null {
+  const s = VEHICLE_SPEC[b.kind];
+  const sub = b.kind === 'kapalselam';
+  let ev: DriveEvent | null = null;
+  if (inp.brake) b.speed -= Math.sign(b.speed) * Math.min(Math.abs(b.speed), s.brake * dt);
+  else if (inp.throttle > 0.05) b.speed = Math.min(s.maxSpeed * inp.throttle, b.speed + s.accel * dt);
+  else if (inp.throttle < -0.05) b.speed = Math.max(-s.reverse, b.speed - s.accel * dt);
+  else b.speed -= Math.sign(b.speed) * Math.min(Math.abs(b.speed), 1.4 * dt); // air menahan pelan
+  b.steerVis += (inp.steer * 0.5 - b.steerVis) * Math.min(1, dt * 6);
+  const sf = Math.min(1, Math.abs(b.speed) / 3 + 0.25);
+  b.heading += -inp.steer * s.turn * sf * Math.sign(b.speed || 1) * dt;
+  const water = world.waterAt(b.x, b.z);
+  if (!water) return { type: 'recover', text: 'Kendaraan air harus berada di air — dikembalikan ke dermaga.' };
+  // naik/turun (kapal selam)
+  if (sub) {
+    const target = inp.up ? 2.5 : inp.down ? -2.5 : 0;
+    b.vy += (target - b.vy) * Math.min(1, dt * 3);
+    b.y = Math.max(water.bottom + 0.4, Math.min(water.surface - 2.1, b.y + b.vy * dt));
+  } else {
+    b.vy = 0;
+    b.y = water.surface;
+  }
+  const deepEnough = (x: number, z: number) => {
+    const w = world.waterAt(x, z);
+    if (!w) return false;
+    const g = groundBelow(world, x, z, sub ? b.y + 0.2 : w.surface + 0.5, 0.5);
+    return sub ? g < b.y - 0.1 || g === -Infinity : g < w.surface - 0.7;
+  };
+  const dist = b.speed * dt;
+  const steps = Math.max(1, Math.ceil(Math.abs(dist) / 0.25));
+  for (let i = 0; i < steps; i++) {
+    const nx = b.x + Math.sin(b.heading) * (dist / steps);
+    const nz = b.z + Math.cos(b.heading) * (dist / steps);
+    if (!deepEnough(nx, nz) || blockedAt(world, b, nx, b.y - (sub ? 0 : 0.5), nz, b.heading)) {
+      if (Math.abs(b.speed) > 3) ev = { type: 'bump' };
+      b.speed = -b.speed * 0.25;
+      break;
+    }
+    b.x = nx;
+    b.z = nz;
+  }
+  b.grounded = true;
+  b.pitch = sub ? Math.max(-0.3, Math.min(0.3, b.vy * 0.08)) : Math.min(0.12, Math.abs(b.speed) / 100);
+  b.roll = -b.steerVis * Math.min(1, Math.abs(b.speed) / 8) * 0.25;
+  if (Math.abs(inp.throttle) > 0.5 && Math.abs(b.speed) < 0.3) b.stuck += dt;
+  else b.stuck = Math.max(0, b.stuck - dt);
   return ev;
 }
 

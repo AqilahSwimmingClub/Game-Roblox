@@ -137,6 +137,40 @@ export function buildVehicle(kind: VehicleKind, color: number): VehicleModel {
       wheels.push(wheel(g, 0.3, 0.2, -1.2, 0.3, 0.9), wheel(g, 0.3, 0.2, 1.2, 0.3, 0.9), wheel(g, 0.22, 0.15, 0, 0.22, -2.4));
       return { group: g, seat: new THREE.Vector3(0, 1.45, 0.8), wheels, wheelRadius: 0.3, prop, steer: null, straddle: false };
     }
+    case 'perahu': {
+      // titik asal = garis air
+      add(g, 2, 0.9, 4, color, 0, 0.05, 0);
+      add(g, 1.4, 0.9, 1, color, 0, 0.05, 2.4); // haluan
+      add(g, 2.04, 0.18, 4.04, 0xffffff, 0, 0.55, 0);
+      add(g, 1.6, 0.2, 3, 0xc98a4b, 0, 0.42, -0.2); // lantai kayu
+      add(g, 1.4, 0.35, 0.5, 0xf4f8ff, 0, 0.75, -0.4); // jok
+      add(g, 0.9, 0.7, 0.06, 0x9fd4ff, 0, 1.05, 1.1); // kaca depan
+      add(g, 0.5, 0.7, 0.5, 0x334155, 0, 0.3, -2.2); // mesin tempel
+      const prop = new THREE.Group();
+      prop.position.set(0, -0.35, -2.5);
+      add(prop, 0.08, 0.7, 0.1, 0x1e2a4a, 0, 0, 0);
+      g.add(prop);
+      add(g, 0.5, 0.5, 0.5, 0xff8a3d, 0.85, 0.85, 1.4); // pelampung
+      return { group: g, seat: new THREE.Vector3(0, 0.9, -0.4), wheels, wheelRadius: 0.3, prop, steer: null, straddle: false };
+    }
+    case 'kapalselam': {
+      add(g, 1.8, 1.8, 4.4, color, 0, 1, 0);
+      add(g, 1.4, 1.4, 0.6, color, 0, 1, 2.45);
+      add(g, 1.2, 0.9, 1.4, color, 0, 2.3, 0.2); // menara
+      add(g, 1.24, 0.5, 0.06, 0x9fd4ff, 0, 2.4, 0.92);
+      add(g, 0.1, 0.9, 0.1, 0x94a3b8, 0.3, 3.1, 0.2); // periskop
+      for (const z of [-0.8, 0.6]) for (const x of [-0.91, 0.91]) add(g, 0.06, 0.5, 0.5, 0x9fd4ff, x, 1.2, z); // jendela bulat
+      add(g, 2.8, 0.12, 0.7, 0x1e2a4a, 0, 1, -1.6); // sirip
+      add(g, 0.12, 1.4, 0.7, 0x1e2a4a, 0, 1, -1.9);
+      const prop = new THREE.Group();
+      prop.position.set(0, 1, -2.4);
+      add(prop, 0.12, 1, 0.1, 0x334155, 0, 0, 0);
+      add(prop, 1, 0.12, 0.1, 0x334155, 0, 0, 0);
+      g.add(prop);
+      add(g, 0.3, 0.2, 0.06, 0xfff7c2, -0.5, 0.6, 2.76); // lampu sorot
+      add(g, 0.3, 0.2, 0.06, 0xfff7c2, 0.5, 0.6, 2.76);
+      return { group: g, seat: new THREE.Vector3(0, 1.6, 0.2), wheels, wheelRadius: 0.3, prop, steer: null, straddle: false };
+    }
   }
 }
 

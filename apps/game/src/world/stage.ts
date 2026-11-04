@@ -4,7 +4,7 @@
  * engine, chunk, tabrakan, dan sistem soal tidak perlu diubah.
  */
 import * as THREE from 'three';
-import { buildKota, buildLobby, buildPodium, WORLDS, type ActivePoint, type PodiumEntry, type SceneId, type WorldId } from '@eduverse/shared';
+import { worldLayout, WORLD_ENV, buildLobby, buildPodium, WORLDS, type ActivePoint, type PodiumEntry, type SceneId, type WorldId } from '@eduverse/shared';
 import { CollisionWorld } from '../engine/collision.js';
 import { WorldView } from '../engine/worldView.js';
 import { AvatarMesh } from '../engine/avatar.js';
@@ -48,7 +48,7 @@ export class Stage {
     engine.scene.add(this.extras);
     if (scene === 'lobi') this.loadLobby();
     else if (scene === 'podium') this.loadPodium();
-    else this.loadKota();
+    else this.loadWorld(scene);
     this.applyQuality();
   }
 
@@ -112,16 +112,21 @@ export class Stage {
     }
   }
 
-  private loadKota() {
-    const k = buildKota();
-    this.half = 600;
+  /** Muat salah satu dari empat dunia (Kota, Hutan, Laut, Luar Angkasa) dari layout bersama. */
+  private loadWorld(w: WorldId) {
+    const k = worldLayout(w);
+    const env = WORLD_ENV[w];
+    this.half = env.mapHalf;
     this.spawn = k.spawnPoint;
+    this.engine.scene.background = new THREE.Color(env.sky);
+    (this.engine.scene.fog as THREE.Fog | null)?.color.setHex(env.fog);
     this.view = new WorldView({ boxes: k.boxes, discs: k.discs, signs: k.signs, trees: k.trees, lamps: k.lamps }, this.engine.scene);
     this.collision.addBoxes(k.boxes);
     this.collision.addDiscs(k.discs);
     this.collision.water = k.water;
     this.points = new QuestionPoints(this.engine.scene);
-    this.bus = new Bus(this.engine.scene);
+    if (w === 'kota') this.bus = new Bus(this.engine.scene);
+    if (w === 'angkasa') this.addStars();
     this.living = new LivingCity(this.engine.scene, k.living);
     // Kendaraan parkir bawaan (mode kelas: diganti status dari server begitu masuk)
     this.living.parked.setStates(k.living.vehicles.map((v) => ({ id: v.id, kind: v.kind, x: v.x, y: v.y, z: v.z, heading: v.heading, color: v.color, driver: null })));
@@ -133,6 +138,29 @@ export class Stage {
     }
     const r = k.interactables.find((i) => i.kind === 'rak');
     if (r) this.rak = { id: r.id, label: r.label, x: r.x, y: r.y, z: r.z, boxIndex: r.boxIndex };
+  }
+
+  /** Langit berbintang + Bumi di kejauhan (Dunia Luar Angkasa). */
+  private addStars() {
+    const n = 900;
+    const pos = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const u = Math.random() * 2 - 1;
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(1 - u * u);
+      pos[i * 3] = Math.cos(a) * r * 190;
+      pos[i * 3 + 1] = Math.abs(u) * 190 + 8;
+      pos[i * 3 + 2] = Math.sin(a) * r * 190;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const stars = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 2, sizeAttenuation: false, fog: false }));
+    stars.userData.followCamera = true;
+    this.extras.add(stars);
+    const earth = new THREE.Mesh(new THREE.SphereGeometry(22, 24, 16), new THREE.MeshBasicMaterial({ color: 0x3ba7ff, fog: false }));
+    earth.position.set(-110, 120, 130);
+    earth.userData.followCamera = true;
+    this.extras.add(earth);
   }
 
   private loadPodium() {
@@ -215,6 +243,12 @@ export class Stage {
   }
 
   update(dt: number, t: number, px: number, pz: number, serverNow: number) {
+    // langit (bintang, Bumi) mengikuti pemain agar selalu di dalam jarak pandang kamera
+    for (const c of this.extras.children) {
+      if (!c.userData.followCamera) continue;
+      c.userData.base ??= c.position.clone();
+      c.position.set(c.userData.base.x + px, c.userData.base.y, c.userData.base.z + pz);
+    }
     this.view?.update(px, pz, t);
     this.points?.animate(t);
     this.bus?.update(serverNow);

@@ -354,7 +354,9 @@ export function apiRouter(registry: RuntimeRegistry) {
         if (a.correct) v.benar++;
         perSubject.set(k, v);
       }
-      res.json({ info, rows, answerCount: answers.length, perSubject: Object.fromEntries(perSubject), recent: answers.slice(-50).reverse() });
+      const perWorld: Record<string, number> = {};
+      for (const a of answers) perWorld[a.world ?? '-'] = (perWorld[a.world ?? '-'] ?? 0) + 1;
+      res.json({ info, rows, answerCount: answers.length, perSubject: Object.fromEntries(perSubject), perWorld, recent: answers.slice(-50).reverse() });
     }),
   );
 

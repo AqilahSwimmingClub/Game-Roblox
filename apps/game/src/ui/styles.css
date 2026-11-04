@@ -296,3 +296,13 @@ body.mv-dialog .demo-bottom, body.mv-dialog .mv-ui, body.mv-dialog .hud .br, bod
 body.touch .mv-wallet { top: calc(94px + var(--safe-t, 0px)); left: calc(140px + var(--safe-l, 0px)); min-height: 38px; font-size: 15px; padding: 4px 12px; }
 .mv-wallet.ada-hadiah { --c: #F3E8FF; outline: 3px solid #8B5CF6; animation: hadiah-denyut 1.2s ease-in-out infinite; }
 @keyframes hadiah-denyut { 50% { transform: scale(1.06); } }
+
+/* Dunia Laut: lapisan biru saat kepala di bawah air (tidak menghalangi sentuhan) */
+body.bawah-air::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: radial-gradient(ellipse at 50% 40%, rgba(40, 150, 210, 0.28), rgba(10, 60, 110, 0.55));
+}

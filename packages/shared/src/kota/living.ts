@@ -17,11 +17,13 @@ import { items as stock, type ShopItem } from './shop.js';
 
 // ───────────────────────── mode gerak ─────────────────────────
 
-export type MoveMode = 'jalan' | 'penumpang' | 'sepeda' | 'motor' | 'mobil' | 'bus' | 'pesawat' | 'jetpack';
-export type VehicleKind = 'sepeda' | 'motor' | 'mobil' | 'bus' | 'pesawat';
+export type MoveMode = 'jalan' | 'penumpang' | 'sepeda' | 'motor' | 'mobil' | 'bus' | 'pesawat' | 'jetpack' | 'perahu' | 'kapalselam';
+export type VehicleKind = 'sepeda' | 'motor' | 'mobil' | 'bus' | 'pesawat' | 'perahu' | 'kapalselam';
+/** Kendaraan air: hanya bergerak di dalam area air (perahu di permukaan, kapal selam di bawah permukaan). */
+export const WATER_VEHICLES: readonly VehicleKind[] = ['perahu', 'kapalselam'];
 
-export const MOVE_MODES: readonly MoveMode[] = ['jalan', 'penumpang', 'sepeda', 'motor', 'mobil', 'bus', 'pesawat', 'jetpack'];
-export const MODE_CODE: Record<MoveMode, number> = { jalan: 0, penumpang: 1, sepeda: 2, motor: 3, mobil: 4, bus: 5, pesawat: 6, jetpack: 7 };
+export const MOVE_MODES: readonly MoveMode[] = ['jalan', 'penumpang', 'sepeda', 'motor', 'mobil', 'bus', 'pesawat', 'jetpack', 'perahu', 'kapalselam'];
+export const MODE_CODE: Record<MoveMode, number> = { jalan: 0, penumpang: 1, sepeda: 2, motor: 3, mobil: 4, bus: 5, pesawat: 6, jetpack: 7, perahu: 8, kapalselam: 9 };
 export function modeFromCode(c: number): MoveMode {
   return MOVE_MODES[c] ?? 'jalan';
 }
@@ -39,6 +41,8 @@ export const MODE_LIMITS: Record<MoveMode, { maxSpeed: number; maxY: number; lab
   bus: { maxSpeed: 15, maxY: 260, label: 'Mengemudi Bus' },
   pesawat: { maxSpeed: 62, maxY: 320, label: 'Menerbangkan Pesawat' },
   jetpack: { maxSpeed: 13, maxY: 170, label: 'Terbang dengan Jetpack' },
+  perahu: { maxSpeed: 15, maxY: 20, label: 'Mengemudikan Perahu' },
+  kapalselam: { maxSpeed: 10, maxY: 20, label: 'Mengemudikan Kapal Selam' },
 };
 
 export interface VehicleSpec {
@@ -60,6 +64,8 @@ export const VEHICLE_SPEC: Record<VehicleKind, VehicleSpec> = {
   mobil: { nama: 'Mobil', maxSpeed: 19, reverse: 5, accel: 6, brake: 16, turn: 1.6, radius: 1.05, length: 4.2, height: 1.7, interact: 4 },
   bus: { nama: 'Bus Penumpang', maxSpeed: 13, reverse: 3, accel: 3.5, brake: 10, turn: 0.95, radius: 1.4, length: 9, height: 3.4, interact: 6 },
   pesawat: { nama: 'Pesawat Ringan', maxSpeed: 58, reverse: 0, accel: 7, brake: 8, turn: 0.7, radius: 2.2, length: 8, height: 2.6, interact: 7 },
+  perahu: { nama: 'Perahu Motor', maxSpeed: 13, reverse: 3, accel: 4, brake: 6, turn: 1.3, radius: 1.1, length: 4.6, height: 1.4, interact: 7 },
+  kapalselam: { nama: 'Kapal Selam Mini', maxSpeed: 8, reverse: 2.5, accel: 3, brake: 6, turn: 1.1, radius: 1.2, length: 4.8, height: 2, interact: 8 },
 };
 
 export const JETPACK = {
