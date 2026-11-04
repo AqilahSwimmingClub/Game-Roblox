@@ -9,6 +9,11 @@ import {
   JETPACK,
   lightFor,
   riftExit,
+  SHOP,
+  CATALOG,
+  checkBuy,
+  sanitizeBag,
+  bagCount,
   type Box,
   zoneAt,
   busPosition,
@@ -198,5 +203,33 @@ describe('Kota Hidup (living city)', () => {
   });
   it('lintasan lalu lintas & pejalan kaki berada di dalam dunia', () => {
     for (const l of [...L.loops, ...L.walks]) for (const p of l.pts) expect(Math.max(Math.abs(p.x), Math.abs(p.z))).toBeLessThan(KOTA_WORLD_HALF);
+  });
+});
+
+describe('Toko & Tas', () => {
+  const k = buildKota();
+  const sari = k.living.vendors.find((v) => v.id === 'V01')!;
+  it('setiap barang pedagang ada di katalog dengan harga positif', () => {
+    const sellers = k.living.vendors.filter((v) => v.items.length);
+    expect(sellers.length).toBeGreaterThanOrEqual(8);
+    for (const v of sellers) for (const it of v.items) expect(CATALOG[it.id]?.harga, `${v.id}/${it.id}`).toBeGreaterThan(0);
+  });
+  it('membeli: total = harga × jumlah, sisa = saldo − total', () => {
+    const apel = sari.items.find((i) => i.id === 'apel')!;
+    const r = checkBuy(20000, {}, sari.items, 'apel', 3);
+    expect(r).toEqual({ ok: true, total: apel.harga * 3, sisa: 20000 - apel.harga * 3 });
+  });
+  it('menolak uang kurang (dengan selisihnya), jumlah tidak sah, barang yang tidak dijual, tas penuh', () => {
+    const r = checkBuy(2000, {}, sari.items, 'mangga', 1);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.kurang).toBe(CATALOG.mangga!.harga - 2000);
+    for (const q of [0, -1, 1.5, SHOP.maksBeliSekali + 1, '2']) expect(checkBuy(99999, {}, sari.items, 'apel', q).ok, String(q)).toBe(false);
+    expect(checkBuy(99999, {}, sari.items, 'nasi-goreng', 1).ok).toBe(false);
+    expect(checkBuy(99999, { apel: SHOP.maksIsiTas }, sari.items, 'apel', 1).ok).toBe(false);
+  });
+  it('isi tas tersimpan dibersihkan (id asing, angka negatif/pecahan dibuang)', () => {
+    const b = sanitizeBag({ apel: 2, hack: 99, jeruk: -3, pisang: 1.7, mangga: 'x' });
+    expect(b).toEqual({ apel: 2, pisang: 1 });
+    expect(bagCount(b)).toBe(3);
   });
 });

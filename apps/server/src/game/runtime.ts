@@ -30,6 +30,14 @@ import {
   VEHICLE_SPEC,
   KOTA_WORLD_HALF,
   riftExit,
+  SHOP,
+  CATALOG,
+  checkBuy,
+  sanitizeBag,
+  isConsumable,
+  bagCount,
+  type Bag,
+  type WalletMsg,
   type MoveMode,
   type VehicleKind,
   type VehicleStateMsg,
@@ -51,7 +59,7 @@ import {
   type PodiumEntry,
   type SpawnMarker,
 } from '@eduverse/shared';
-import { query } from '../db/pool.js';
+import { query, tx } from '../db/pool.js';
 import { loadQuestionPage } from '../questionsRepo.js';
 
 export const hashToken = (t: string) => crypto.createHash('sha256').update(t).digest('hex');
@@ -85,6 +93,8 @@ interface RosterRow {
   last_correct_at: Date | null;
   preset: boolean;
   kicked: boolean;
+  wallet?: number;
+  inventory?: unknown;
 }
 
 export interface Student {
@@ -108,6 +118,10 @@ export interface Student {
   lastScene: SceneId;
   lastPos: { x: number; y: number; z: number } | null;
   ready: boolean;
+  /** Dompet Rupiah virtual & tas (tidak memengaruhi poin). */
+  wallet: number;
+  bag: Bag;
+  buyTimes: number[];
 }
 
 interface Pending {
@@ -237,6 +251,9 @@ export class SessionRuntime {
       socketId: null,
       lastScene: 'lobi',
       lastPos: null,
+      wallet: typeof r.wallet === 'number' ? r.wallet : SHOP.saldoAwal,
+      bag: sanitizeBag(r.inventory),
+      buyTimes: [],
       ready: false,
     };
   }
@@ -485,7 +502,7 @@ export class SessionRuntime {
 
   // ───────────────────────────── adegan & gerak ─────────────────────────────
 
-  enterScene(socket: Socket, scene: SceneId): { ok: true; spawn: { x: number; y: number; z: number }; points?: ActivePoint[]; done?: string[]; vehicles?: VehicleStateMsg[]; jetpack?: boolean } | { ok: false; error: string } {
+  enterScene(socket: Socket, scene: SceneId): { ok: true; spawn: { x: number; y: number; z: number }; points?: ActivePoint[]; done?: string[]; vehicles?: VehicleStateMsg[]; jetpack?: boolean; dompet?: WalletMsg } | { ok: false; error: string } {
     const p = this.players.get(socket.id);
     if (!p?.student) return { ok: false, error: 'Pilih identitas dahulu.' };
     if (!p.student.approved) return { ok: false, error: 'Menunggu persetujuan guru.' };
@@ -524,7 +541,7 @@ export class SessionRuntime {
       void socket.join(this.worldRoom(scene));
       const w = this.ensureWorld(scene);
       if (scene === 'kota') setTimeout(() => this.emitVehicles(p.instance), 0);
-      return { ok: true, spawn, points: this.pointList(w), done: this.doneList(p.student), vehicles: scene === 'kota' ? this.vehicleList(p.instance) : [], jetpack: p.hasJetpack };
+      return { ok: true, spawn, points: this.pointList(w), done: this.doneList(p.student), vehicles: scene === 'kota' ? this.vehicleList(p.instance) : [], jetpack: p.hasJetpack, dompet: this.walletOf(p.student) };
     }
     return { ok: true, spawn };
   }
@@ -713,6 +730,71 @@ export class SessionRuntime {
     p.tp++;
     p.lastStateAt = now;
     return { ok: true, target: out, nama: dest.nama };
+  }
+
+  // ───────────────────────────── toko & tas ─────────────────────────────
+
+  walletOf(s: Student): WalletMsg {
+    return { saldo: s.wallet, tas: { ...s.bag } };
+  }
+
+  /** Beli barang dari pedagang: dekat pedagang, barang dijual pedagang itu, saldo cukup, tas muat. */
+  async buy(socket: Socket, raw: unknown): Promise<({ ok: true; total: number; sisa: number; itemId: string; qty: number } & WalletMsg) | { ok: false; error: string; kurang?: number }> {
+    const p = this.players.get(socket.id);
+    const s = p?.student;
+    if (!p || !s || p.scene !== 'kota') return { ok: false, error: 'Toko hanya ada di Dunia Kota.' };
+    if (this.status === 'selesai') return { ok: false, error: 'Permainan sudah selesai.' };
+    const m = (raw ?? {}) as { vendorId?: unknown; itemId?: unknown; qty?: unknown };
+    const v = buildKota().living.vendors.find((x) => x.id === m.vendorId);
+    if (!v || !v.items.length) return { ok: false, error: 'Pedagang ini tidak berjualan.' };
+    if (Math.hypot(p.x - v.x, p.z - v.z) > SHOP.jarakBeli || Math.abs(p.y - v.y) > 3) return { ok: false, error: 'Mendekatlah ke pedagang untuk membeli.' };
+    const now = Date.now();
+    s.buyTimes = s.buyTimes.filter((t) => now - t < 60_000);
+    if (s.buyTimes.length >= SHOP.beliPerMenit) return { ok: false, error: 'Pelan-pelan belanjanya ya!' };
+    const chk = checkBuy(s.wallet, s.bag, v.items, m.itemId, m.qty);
+    if (!chk.ok) return chk;
+    const itemId = m.itemId as string;
+    const qty = m.qty as number;
+    s.buyTimes.push(now);
+    // Ubah status di memori SEBELUM await → dua pembelian serentak tidak bisa memakai saldo yang sama.
+    const before = { wallet: s.wallet, bag: { ...s.bag } };
+    s.wallet = chk.sisa;
+    s.bag[itemId] = (s.bag[itemId] ?? 0) + qty;
+    try {
+      await tx(async (c) => {
+        await c.query('UPDATE session_roster SET wallet = $2, inventory = $3 WHERE id = $1', [s.rosterId, s.wallet, JSON.stringify(s.bag)]);
+        await c.query(
+          'INSERT INTO purchases (session_id, roster_id, vendor_id, item_id, qty, unit_price, total, wallet_after) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+          [this.id, s.rosterId, v.id, itemId, qty, CATALOG[itemId]!.harga, chk.total, s.wallet],
+        );
+      });
+    } catch (e) {
+      s.wallet = before.wallet;
+      s.bag = before.bag;
+      throw e;
+    }
+    this.pushTeacher();
+    return { ok: true, total: chk.total, sisa: chk.sisa, itemId, qty, ...this.walletOf(s) };
+  }
+
+  /** Pakai makanan/minuman/buah dari tas (efek: energi jetpack penuh di klien). */
+  async useItem(socket: Socket, raw: unknown): Promise<({ ok: true; itemId: string; efek: 'energi' } & WalletMsg) | { ok: false; error: string }> {
+    const s = this.players.get(socket.id)?.student;
+    if (!s) return { ok: false, error: 'Belum bergabung.' };
+    const itemId = (raw as { itemId?: unknown } | null)?.itemId;
+    const it = typeof itemId === 'string' ? CATALOG[itemId] : undefined;
+    if (!it || !(s.bag[it.id]! > 0)) return { ok: false, error: 'Barang ini tidak ada di tasmu.' };
+    if (!isConsumable(it.kategori)) return { ok: false, error: `${it.nama} disimpan sebagai koleksi.` };
+    const before = { ...s.bag };
+    s.bag[it.id]!--;
+    if (!s.bag[it.id]) delete s.bag[it.id];
+    try {
+      await query('UPDATE session_roster SET inventory = $2 WHERE id = $1', [s.rosterId, JSON.stringify(s.bag)]);
+    } catch (e) {
+      s.bag = before;
+      throw e;
+    }
+    return { ok: true, itemId: it.id, efek: 'energi', ...this.walletOf(s) };
   }
 
   /** Kendaraan yang ditinggal jauh dari tempat parkirnya > 4 menit kembali sendiri (tidak menumpuk/terjebak). */
@@ -951,6 +1033,7 @@ export class SessionRuntime {
       s.score += points;
       s.correct++;
       s.lastCorrectAt = now;
+      s.wallet += SHOP.hadiahBenar; // hadiah uang virtual untuk jual beli (poin tetap terpisah)
     } else if (finalAttempt) {
       s.streak = 0;
     }
@@ -970,9 +1053,10 @@ export class SessionRuntime {
     );
     if (finalAttempt) {
       await query(
-        'UPDATE session_roster SET score = $2, correct = $3, answered = $4, last_correct_at = $5 WHERE id = $1',
-        [s.rosterId, s.score, s.correct, s.answered, s.lastCorrectAt ? new Date(s.lastCorrectAt) : null],
+        'UPDATE session_roster SET score = $2, correct = $3, answered = $4, last_correct_at = $5, wallet = $6 WHERE id = $1',
+        [s.rosterId, s.score, s.correct, s.answered, s.lastCorrectAt ? new Date(s.lastCorrectAt) : null, s.wallet],
       );
+      if (correct) socket.emit(EV.wallet, this.walletOf(s));
     }
     this.lbDirty = true;
     this.lastActivity = now;
@@ -1302,6 +1386,8 @@ export class SessionRuntime {
           zone: zone?.id ?? null,
           zoneName: zone?.nama ?? null,
           mode: p ? MODE_LIMITS[p.riding ? 'penumpang' : p.mode].label : null,
+          saldo: s.wallet,
+          barang: bagCount(s.bag),
           x: p ? Math.round(p.x) : null,
           z: p ? Math.round(p.z) : null,
           poin: s.score,

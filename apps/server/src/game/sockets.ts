@@ -66,7 +66,7 @@ export function attachSockets(io: Server, registry: RuntimeRegistry, opts: { tru
           roster: rt.rosterList(),
           preset: [...rt.students.values()].some((x) => x.preset),
           requireApproval: rt.settings.requireApproval,
-          me: s ? { absen: s.absen, nama: s.nama, avatar: s.avatar, approved: s.approved, poin: s.score, benar: s.correct, dijawab: s.answered, lastScene: s.lastScene } : null,
+          me: s ? { absen: s.absen, nama: s.nama, avatar: s.avatar, approved: s.approved, poin: s.score, benar: s.correct, dijawab: s.answered, lastScene: s.lastScene, dompet: { saldo: s.wallet, tas: { ...s.bag } } } : null,
         });
       } catch (e) {
         console.error('[join]', e);
@@ -160,6 +160,27 @@ export function attachSockets(io: Server, registry: RuntimeRegistry, opts: { tru
     socket.on(EV.riftUse, (raw: unknown, ack: unknown) => {
       if (!rt) return ackOf(ack)({ ok: false, error: 'Belum bergabung.' });
       ackOf(ack)(rt.useRift(socket, (raw as { riftId?: unknown } | null)?.riftId));
+    });
+
+    socket.on(EV.buy, async (raw: unknown, ack: unknown) => {
+      const done = ackOf(ack);
+      if (!rt) return done({ ok: false, error: 'Belum bergabung.' });
+      try {
+        done(await rt.buy(socket, raw));
+      } catch (e) {
+        console.error('[buy]', e);
+        done({ ok: false, error: 'Gagal membeli. Coba lagi.' });
+      }
+    });
+    socket.on(EV.useItem, async (raw: unknown, ack: unknown) => {
+      const done = ackOf(ack);
+      if (!rt) return done({ ok: false, error: 'Belum bergabung.' });
+      try {
+        done(await rt.useItem(socket, raw));
+      } catch (e) {
+        console.error('[item]', e);
+        done({ ok: false, error: 'Gagal memakai barang.' });
+      }
     });
 
     socket.on('disconnect', () => rt?.detach(socket));

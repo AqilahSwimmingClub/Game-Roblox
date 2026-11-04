@@ -191,6 +191,8 @@ export const EV = {
   vehicleExit: 'vehicle:exit', // {x, y, z} → ack {ok, x, y, z}
   jetpack: 'jetpack:set', // {on, stationId?} → ack
   riftUse: 'rift:use', // {riftId} → ack {ok, target, nama}
+  buy: 'shop:buy', // {vendorId, itemId, qty} → ack {ok, saldo, tas, total, sisa} (dinilai server)
+  useItem: 'item:use', // {itemId} → ack {ok, saldo, tas, efek}
   // server → klien siswa
   session: 'session:state',
   roster: 'roster',
@@ -204,7 +206,8 @@ export const EV = {
   notify: 'notify',
   countdown: 'countdown',
   teleport: 'teleport',
-  vehicles: 'vehicles:state', // VehicleStateMsg[] (penuh) saat masuk dunia & setiap perubahan
+  vehicles: 'vehicles:state',
+  wallet: 'wallet:update', // WalletMsg {saldo, tas} — setelah jawaban benar, pembelian, pemakaian // VehicleStateMsg[] (penuh) saat masuk dunia & setiap perubahan
   ended: 'game:ended',
   podium: 'podium:show',
   kicked: 'kicked',
