@@ -10,7 +10,7 @@ if (!URL || !KEY) {
   console.log('Lewati: SUPABASE_URL / SUPABASE_ANON_KEY tidak diisi.');
   process.exit(0);
 }
-const TABLES = ['teachers', 'questions', 'sessions', 'session_roster', 'answers', 'import_batches', 'schema_migrations', 'purchases'];
+const TABLES = ['teachers', 'questions', 'sessions', 'session_roster', 'answers', 'import_batches', 'schema_migrations', 'purchases', 'gifts'];
 const h = { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
 let bad = 0;
 for (const t of TABLES) {

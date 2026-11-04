@@ -289,6 +289,39 @@ try {
     console.log(`    setelah sambung ulang: mode ${e.mobility.mode}, ${id} diparkir (tanpa pengemudi), posisi (${e.pos.x.toFixed(0)}, ${e.pos.z.toFixed(0)}), skor ${e.score}, tas ${JSON.stringify(e.mobility.tas)} utuh`);
   });
 
+  await step('Siswa A memberi barang ke siswa B (UI tas + server): hanya bila dekat, tas keduanya berubah, B diberi tahu', async () => {
+    const idB = (await edu(b.page)).myId;
+    const tasA0 = (await edu(a.page)).mobility.tas;
+    // B masih jauh (di Kota), A di Bandara → ditolak server
+    const far = await a.page.evaluate((id) => window.__eduDebug.raw.give(id, 'roti', 1), idB);
+    if (far.ok || !/Dekati Sinta/.test(far.error)) throw new Error(`memberi dari jauh: ${JSON.stringify(far)}`);
+    const self = await a.page.evaluate((id) => window.__eduDebug.raw.give(id, 'roti', 1), (await edu(a.page)).myId);
+    if (self.ok) throw new Error('memberi ke diri sendiri diterima');
+    // B menyusul lewat lubang dimensi Alun-alun → Bandara, lalu berjalan ke dekat A
+    await goTo(b.page, 24, 22);
+    await goTo(b.page, 26, -26);
+    await b.page.waitForFunction(() => window.__edu.pos.x > 600, null, { timeout: 15000 });
+    const pa = (await edu(a.page)).pos;
+    await goTo(b.page, pa.x + 2, pa.z - 2);
+    await a.page.waitForFunction(() => window.__eduDebug.friends(5.5).some((f) => f.nama === 'Sinta'), null, { timeout: 15000 });
+    // A membuka tas (tombol B) → BERI Air Mineral → pilih Sinta
+    await a.page.keyboard.press('KeyB');
+    await a.page.getByRole('button', { name: 'Beri Air Mineral', exact: true }).click();
+    await a.page.getByRole('button', { name: '🎁 Sinta', exact: true }).click();
+    await a.page.getByText(/sudah diberikan ke Sinta/).waitFor({ timeout: 8000 });
+    await shot(a.page, 's3e-beri-barang');
+    await a.page.getByRole('button', { name: 'Tutup', exact: true }).click();
+    await b.page.waitForFunction(() => window.__edu.giftsReceived >= 1 && window.__edu.mobility.tas['air-mineral'] === 1, null, { timeout: 8000 });
+    await b.page.getByText(/Raka memberimu/).first().waitFor({ timeout: 5000 });
+    await shot(b.page, 's3f-terima-barang');
+    const tasA1 = (await edu(a.page)).mobility.tas;
+    if ((tasA1['air-mineral'] ?? 0) !== (tasA0['air-mineral'] ?? 0) - 1) throw new Error(`tas A ${JSON.stringify(tasA0)} → ${JSON.stringify(tasA1)}`);
+    const none = await a.page.evaluate((id) => window.__eduDebug.raw.give(id, 'air-mineral', 1), idB);
+    if (none.ok) throw new Error('memberi barang yang sudah habis diterima');
+    console.log(`    ditolak: "${far.error}" · "${self.error}" · "${none.error}"`);
+    console.log(`    tas A ${JSON.stringify(tasA0)} → ${JSON.stringify(tasA1)} · tas B ${JSON.stringify((await edu(b.page)).mobility.tas)}`);
+  });
+
   await step('Guru mengakhiri permainan → hasil akhir tampil', async () => {
     teacher.once('dialog', (d) => d.accept());
     await teacher.getByRole('button', { name: '■ Akhiri Permainan' }).click();

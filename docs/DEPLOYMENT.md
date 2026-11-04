@@ -25,7 +25,7 @@ Tablet guru ───────┼─ HTTPS ─► Vercel ──────�
 
 ## Langkah 0 — Basis data Supabase (sudah disiapkan)
 
-Proyek Supabase **Game-Roblox** (paket Free) sudah berisi skema EDUVERSE (migrasi 001–004, termasuk dompet & tas) dengan **RLS aktif tanpa policy**
+Proyek Supabase **Game-Roblox** (paket Free) sudah berisi skema EDUVERSE (migrasi 001–005, termasuk dompet, tas & pemberian barang) dengan **RLS aktif tanpa policy**
 dan hak `anon`/`authenticated` dicabut — API publik Supabase tidak bisa membaca data apa pun; hanya server EDUVERSE yang
 terhubung langsung. Yang perlu Anda lakukan:
 
@@ -34,7 +34,7 @@ terhubung langsung. Yang perlu Anda lakukan:
 2. Isi string itu sebagai `DATABASE_URL` di Render (Langkah 1). `PGSSL=1` sudah diatur di `render.yaml`.
    Untuk verifikasi sertifikat penuh: unduh *SSL certificate* dari Supabase (Settings → Database), isi `PGSSL_CA` dengan isinya,
    lalu hapus `PGSSL_STRICT=0`.
-3. Server menjalankan migrasi otomatis; karena 001–004 sudah tercatat di `schema_migrations`, tidak ada yang diulang.
+3. Server menjalankan migrasi otomatis; karena 001–005 sudah tercatat di `schema_migrations`, tidak ada yang diulang.
 4. (Opsional) Cek keamanan: jalankan `supabase/verify_rls.sql` di SQL Editor Supabase — semua tabel harus "DITOLAK" untuk `anon` & `authenticated`.
 
 Mengapa server game tidak dipindah ke Supabase Realtime/Edge Functions: lihat [KOTA-HIDUP.md → Supabase](KOTA-HIDUP.md#supabase--apa-yang-dipakai-dan-mengapa)

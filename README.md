@@ -25,8 +25,8 @@ dari **Dashboard Guru** di tablet Android. Acuan desain: dokumen *EDUVERSE Tahap
 | Podium 3D juara 1–3 | ✅ |
 | Kualitas grafis Rendah / Sedang / Tinggi / Otomatis (turun otomatis bila FPS rendah) | ✅ |
 | **Kota Hidup**: lalu lintas NPC lajur kiri + lampu & zebra cross, pejalan kaki, 14 pedagang/warga dengan misi kontekstual, toko & parkir | ✅ diuji otomatis — [docs/KOTA-HIDUP.md](docs/KOTA-HIDUP.md) |
-| Kendaraan yang bisa dikendarai (sepeda, motor, mobil, bus, **pesawat**), **jetpack** (mendarat di atap), **lubang dimensi** + Taman Langit, Bandara & Kawasan Gedung Tinggi | ✅ diuji otomatis (Mode Demo 16/16, multipemain 18/18) — belum di HP fisik |
-| **Toko & Tas**: pedagang menjual barang virtual (Rupiah virtual dari jawaban benar, dinilai server, disimpan per sesi; Dashboard menampilkan Uang · Tas) | ✅ diuji otomatis |
+| Kendaraan yang bisa dikendarai (sepeda, motor, mobil, bus, **pesawat**), **jetpack** (mendarat di atap), **lubang dimensi** + Taman Langit, Bandara & Kawasan Gedung Tinggi | ✅ diuji otomatis (Mode Demo 17/17, multipemain 19/19) — belum di HP fisik |
+| **Toko & Tas**: pedagang menjual barang virtual (Rupiah virtual dari jawaban benar, dinilai server, disimpan per sesi; Dashboard menampilkan Uang · Tas) + **memberi barang ke teman di dekatmu** | ✅ diuji otomatis |
 | Supabase PostgreSQL (skema + RLS, tanpa layanan berbayar) | ✅ skema diterapkan; server game tetap Node otoritatif |
 | Dunia Hutan, Laut, Luar Angkasa | ⏳ tahap berikutnya (portal & Gerbang Antardunia tampil "segera hadir") |
 | Frontend publik (Vercel: game `/`, Dashboard `/guru/`, demo) | ✅ konfigurasi siap (`vercel.json`); terbit otomatis dari GitHub |

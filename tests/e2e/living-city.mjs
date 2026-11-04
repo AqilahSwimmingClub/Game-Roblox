@@ -131,6 +131,11 @@ try {
       await api('openBag');
       await wait(300);
       await shot('tas');
+      await page.getByRole('button', { name: 'Beri Apel', exact: true }).click();
+      await wait(200);
+      const giveTxt = await page.locator('body').innerText();
+      if (!/Mode Demo tidak punya pemain lain/.test(giveTxt)) fail('Beri barang (Mode Demo)', 'penjelasan tidak tampil');
+      else pass('Tombol BERI di Mode Demo menjelaskan dengan jujur (tidak ada pemain lain)');
       await page.getByRole('button', { name: 'PAKAI', exact: true }).first().click();
       await wait(300);
       const s2 = await st();
