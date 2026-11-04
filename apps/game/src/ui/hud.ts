@@ -369,7 +369,7 @@ export class Hud {
         h('div', { class: 'grid-kualitas' }, ...qBtns),
         h('div', { class: 'grid-dua' }, soundBtn, musicBtn),
         this.mode === 'dunia' ? emoteBtn : null,
-        this.mode === 'lobi' ? btn('Ganti Avatar', 'ungu lebar', () => (close(), this.cb.avatar())) : null,
+        this.mode !== 'none' ? btn('Ganti Karakter', 'ungu lebar', () => (close(), this.cb.avatar())) : null,
         btn('Tidak bisa bergerak? Pulihkan', 'putih lebar', () => (close(), this.cb.recover())),
         this.mode === 'dunia' ? exitBtn : null,
       ),

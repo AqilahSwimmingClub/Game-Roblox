@@ -78,13 +78,21 @@ const SCENE: Record<string, string> = { lobi: 'Lobi', kota: 'Dunia Kota', hutan:
 
 export async function liveView(id: string): Promise<HTMLElement> {
   const d = await api<SessionDetail>(`/sessions/${id}`);
+  // Tautan siswa harus menuju host game yang sedang diuji, bukan PUBLIC_URL backend
+  // yang bisa tertinggal di domain produksi lama.
+  const studentUrl = new URL('/', window.location.origin);
+  studentUrl.searchParams.set('kode', d.code);
+  // Pertahankan tautan berbagi Vercel pada preview terlindungi jika tersedia.
+  const share = new URLSearchParams(window.location.search).get('_vercel_share');
+  if (share) studentUrl.searchParams.set('_vercel_share', share);
+  const studentLink = studentUrl.toString();
   let live = d.live;
   let offset = live.state.serverNow - Date.now();
   const feed: FeedItem[] = [];
 
   // ---------- kepala: kode + tautan + QR ----------
   const qr = h('canvas', { style: 'width:150px;height:150px;border-radius:12px;background:#fff' }) as HTMLCanvasElement;
-  void QRCode.toCanvas(qr, d.link, { width: 150, margin: 1, color: { dark: '#1E2A4A', light: '#FFFFFF' } }).catch(() => undefined);
+  void QRCode.toCanvas(qr, studentLink, { width: 150, margin: 1, color: { dark: '#1E2A4A', light: '#FFFFFF' } }).catch(() => undefined);
   const statusEl = h('span', { class: 'status' });
   const timerEl = h('div', { class: 'kode', style: 'font-size:clamp(32px,5vw,48px);letter-spacing:.04em' }, '--:--');
   const countsEl = h('div', { class: 'row' });
@@ -466,13 +474,29 @@ export async function liveView(id: string): Promise<HTMLElement> {
 
   const showQr = () => {
     const big = h('canvas') as HTMLCanvasElement;
-    void QRCode.toCanvas(big, d.link, { width: 480, margin: 2 });
-    const m = modal(h('div', { class: 'card col', style: 'align-items:center;text-align:center' }, h('h2', null, `Kode kelas: ${d.code}`), big, h('div', { style: 'font-weight:800;word-break:break-all' }, d.link), btn('Tutup', 'putih', () => m.close())));
+    void QRCode.toCanvas(big, studentLink, { width: 480, margin: 2 });
+    const m = modal(h('div', { class: 'card col', style: 'align-items:center;text-align:center' }, h('h2', null, `Kode kelas: ${d.code}`), big, h('div', { style: 'font-weight:800;word-break:break-all' }, studentLink), btn('Tutup', 'putih', () => m.close())));
   };
 
   const worlds = live.state.worlds.map((w) => WORLDS.find((x) => x.id === w)?.nama ?? w).join(', ');
   apply(live);
   renderFeed();
+  const linkInput = h('input', { class: 'in', readonly: true, value: studentLink, style: 'max-width:440px', onfocus: (e: Event) => (e.target as HTMLInputElement).select() }) as HTMLInputElement;
+  const copyStudentLink = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard API tidak tersedia');
+      await navigator.clipboard.writeText(studentLink);
+      toast('Tautan siswa berhasil disalin');
+    } catch {
+      // Fallback untuk sebagian browser HP/tablet yang menolak Clipboard API.
+      linkInput.focus();
+      linkInput.select();
+      let copied = false;
+      try { copied = document.execCommand('copy'); } catch { /* tidak didukung */ }
+      if (copied) toast('Tautan siswa berhasil disalin');
+      else toast('Tidak bisa menyalin otomatis. Tekan lama tautan lalu pilih Salin.', true);
+    }
+  };
 
   return h(
     'main',
@@ -489,11 +513,8 @@ export async function liveView(id: string): Promise<HTMLElement> {
         h(
           'div',
           { class: 'row' },
-          h('input', { class: 'in', readonly: true, value: d.link, style: 'max-width:440px', onfocus: (e: Event) => (e.target as HTMLInputElement).select() }),
-          btn('Salin Tautan', 'putih', async () => {
-            await navigator.clipboard.writeText(d.link).catch(() => undefined);
-            toast('Tautan disalin');
-          }),
+          linkInput,
+          btn('Salin Tautan', 'putih', copyStudentLink),
         ),
         countsEl,
       ),
