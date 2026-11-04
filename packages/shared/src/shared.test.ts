@@ -12,6 +12,7 @@ import {
   SHOP,
   CATALOG,
   checkBuy,
+  checkGive,
   sanitizeBag,
   bagCount,
   type Box,
@@ -226,6 +227,16 @@ describe('Toko & Tas', () => {
     for (const q of [0, -1, 1.5, SHOP.maksBeliSekali + 1, '2']) expect(checkBuy(99999, {}, sari.items, 'apel', q).ok, String(q)).toBe(false);
     expect(checkBuy(99999, {}, sari.items, 'nasi-goreng', 1).ok).toBe(false);
     expect(checkBuy(99999, { apel: SHOP.maksIsiTas }, sari.items, 'apel', 1).ok).toBe(false);
+  });
+  it('memberi barang: hanya barang yang dimiliki, 1–3 sekali beri, tas penerima harus muat', () => {
+    expect(checkGive({ apel: 2 }, {}, 'apel', 2).ok).toBe(true);
+    expect(checkGive({ apel: 1 }, {}, 'apel', 2).ok).toBe(false);
+    expect(checkGive({}, {}, 'apel', 1).ok).toBe(false);
+    expect(checkGive({ apel: 5 }, {}, 'apel', SHOP.maksBeriSekali + 1).ok).toBe(false);
+    expect(checkGive({ apel: 5 }, {}, 'uang', 1).ok).toBe(false);
+    const full = checkGive({ apel: 1 }, { jeruk: SHOP.maksIsiTas }, 'apel', 1, 'Sinta');
+    expect(full.ok).toBe(false);
+    if (!full.ok) expect(full.error).toContain('Sinta');
   });
   it('isi tas tersimpan dibersihkan (id asing, angka negatif/pecahan dibuang)', () => {
     const b = sanitizeBag({ apel: 2, hack: 99, jeruk: -3, pisang: 1.7, mangga: 'x' });

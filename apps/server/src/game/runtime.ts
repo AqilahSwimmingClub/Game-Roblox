@@ -33,6 +33,7 @@ import {
   SHOP,
   CATALOG,
   checkBuy,
+  checkGive,
   sanitizeBag,
   isConsumable,
   bagCount,
@@ -122,6 +123,7 @@ export interface Student {
   wallet: number;
   bag: Bag;
   buyTimes: number[];
+  giveTimes: number[];
 }
 
 interface Pending {
@@ -254,6 +256,7 @@ export class SessionRuntime {
       wallet: typeof r.wallet === 'number' ? r.wallet : SHOP.saldoAwal,
       bag: sanitizeBag(r.inventory),
       buyTimes: [],
+      giveTimes: [],
       ready: false,
     };
   }
@@ -795,6 +798,52 @@ export class SessionRuntime {
       throw e;
     }
     return { ok: true, itemId: it.id, efek: 'energi', ...this.walletOf(s) };
+  }
+
+  /**
+   * Beri barang ke teman: teman online di instance yang sama, dekat (≤ 6 m), barang ada di tas pemberi,
+   * tas penerima muat, batas laju. Hanya barang (bukan uang). Kedua tas diperbarui dalam satu transaksi.
+   */
+  async give(socket: Socket, raw: unknown): Promise<({ ok: true; ke: string; itemId: string; qty: number } & WalletMsg) | { ok: false; error: string }> {
+    const p = this.players.get(socket.id);
+    const s = p?.student;
+    if (!p || !s || p.scene !== 'kota') return { ok: false, error: 'Memberi barang hanya bisa di Dunia Kota.' };
+    if (this.status === 'selesai') return { ok: false, error: 'Permainan sudah selesai.' };
+    const m = (raw ?? {}) as { toId?: unknown; itemId?: unknown; qty?: unknown };
+    if (typeof m.toId !== 'string' || m.toId === socket.id) return { ok: false, error: 'Pilih teman yang akan diberi.' };
+    const q = this.players.get(m.toId);
+    const t = q?.student;
+    if (!q || !t || t === s || t.kicked) return { ok: false, error: 'Temanmu sedang tidak ada di dekatmu.' };
+    if (q.scene !== p.scene || q.instance !== p.instance || Math.hypot(q.x - p.x, q.z - p.z) > SHOP.jarakBeri || Math.abs(q.y - p.y) > 3)
+      return { ok: false, error: `Dekati ${t.nama} (paling jauh ${SHOP.jarakBeri} m) untuk memberi barang.` };
+    const now = Date.now();
+    s.giveTimes = s.giveTimes.filter((x) => now - x < 60_000);
+    if (s.giveTimes.length >= SHOP.beriPerMenit) return { ok: false, error: 'Pelan-pelan ya! Coba lagi sebentar lagi.' };
+    const chk = checkGive(s.bag, t.bag, m.itemId, m.qty, t.nama);
+    if (!chk.ok) return chk;
+    const id = chk.item.id;
+    const qty = m.qty as number;
+    s.giveTimes.push(now);
+    // ubah memori sebelum await (tidak bisa memberi barang yang sama dua kali), kembalikan bila DB gagal
+    const before = { from: { ...s.bag }, to: { ...t.bag } };
+    s.bag[id]! -= qty;
+    if (!s.bag[id]) delete s.bag[id];
+    t.bag[id] = (t.bag[id] ?? 0) + qty;
+    try {
+      await tx(async (c) => {
+        await c.query('UPDATE session_roster SET inventory = $2 WHERE id = $1', [s.rosterId, JSON.stringify(s.bag)]);
+        await c.query('UPDATE session_roster SET inventory = $2 WHERE id = $1', [t.rosterId, JSON.stringify(t.bag)]);
+        await c.query('INSERT INTO gifts (session_id, from_roster, to_roster, item_id, qty) VALUES ($1,$2,$3,$4,$5)', [this.id, s.rosterId, t.rosterId, id, qty]);
+      });
+    } catch (e) {
+      s.bag = before.from;
+      t.bag = before.to;
+      throw e;
+    }
+    q.socket.emit(EV.wallet, this.walletOf(t));
+    q.socket.emit(EV.gift, { dari: s.nama, itemId: id, qty, x: p.x, y: p.y, z: p.z });
+    this.pushTeacher();
+    return { ok: true, ke: t.nama, itemId: id, qty, ...this.walletOf(s) };
   }
 
   /** Kendaraan yang ditinggal jauh dari tempat parkirnya > 4 menit kembali sendiri (tidak menumpuk/terjebak). */

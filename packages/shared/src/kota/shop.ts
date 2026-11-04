@@ -24,6 +24,9 @@ export const SHOP = {
   maksIsiTas: 40,
   jarakBeli: 5, // meter dari pedagang
   beliPerMenit: 20,
+  jarakBeri: 6, // meter dari teman
+  maksBeriSekali: 3,
+  beriPerMenit: 10,
 } as const;
 
 /** Barang yang memberi energi saat dipakai. */
@@ -116,4 +119,19 @@ export function checkBuy(saldo: number, tas: Bag, vendorItems: ShopItem[], itemI
   const total = it.harga * qty;
   if (saldo < total) return { ok: false, error: `Uangmu kurang ${formatRp(total - saldo)}. Jawab soal dengan benar untuk menambah uang!`, kurang: total - saldo };
   return { ok: true, total, sisa: saldo - total };
+}
+
+export type GiveCheck = { ok: true; item: ShopItem } | { ok: false; error: string };
+
+/**
+ * Aturan memberi barang ke teman (sama di server & klien). Hanya BARANG yang bisa diberikan — uang tidak,
+ * agar tidak ada tekanan meminta uang antarsiswa.
+ */
+export function checkGive(fromBag: Bag, toBag: Bag, itemId: unknown, qty: unknown, toName = 'temanmu'): GiveCheck {
+  const item = typeof itemId === 'string' ? CATALOG[itemId] : undefined;
+  if (!item) return { ok: false, error: 'Barang tidak dikenal.' };
+  if (typeof qty !== 'number' || !Number.isInteger(qty) || qty < 1 || qty > SHOP.maksBeriSekali) return { ok: false, error: `Beri 1–${SHOP.maksBeriSekali} barang sekali beri.` };
+  if ((fromBag[item.id] ?? 0) < qty) return { ok: false, error: `${item.nama} di tasmu tidak cukup.` };
+  if (bagCount(toBag) + qty > SHOP.maksIsiTas) return { ok: false, error: `Tas ${toName} sudah penuh.` };
+  return { ok: true, item };
 }

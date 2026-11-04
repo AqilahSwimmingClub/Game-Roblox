@@ -172,6 +172,16 @@ export function attachSockets(io: Server, registry: RuntimeRegistry, opts: { tru
         done({ ok: false, error: 'Gagal membeli. Coba lagi.' });
       }
     });
+    socket.on(EV.give, async (raw: unknown, ack: unknown) => {
+      const done = ackOf(ack);
+      if (!rt) return done({ ok: false, error: 'Belum bergabung.' });
+      try {
+        done(await rt.give(socket, raw));
+      } catch (e) {
+        console.error('[give]', e);
+        done({ ok: false, error: 'Gagal memberi barang. Coba lagi.' });
+      }
+    });
     socket.on(EV.useItem, async (raw: unknown, ack: unknown) => {
       const done = ackOf(ack);
       if (!rt) return done({ ok: false, error: 'Belum bergabung.' });
