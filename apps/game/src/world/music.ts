@@ -6,7 +6,8 @@
  *  - Laut: pad mengalun, lonceng ber-gema, bass panjang + ombak & gelembung; saat menyelam suara meredam (low-pass)
  *    dan ada lonceng peringatan lembut bila oksigen hampir habis.
  *  - Luar Angkasa: pad luas, kerlip arpeggio ber-delay, drone dalam + desir kosmik.
- *  - Lobi: lonceng ringan. Podium: fanfare perayaan meriah.
+ *  - Lobi: lonceng ringan. Podium: acara penghargaan bertahap (drum roll → juara 3 → 2 → crescendo → fanfare juara 1 → lagu
+ *    kemenangan orisinal: brass, string, timpani, perkusi) + sorak & tepuk tangan sintetis.
  * Penjadwal "lookahead" (setInterval ± 25 ms, jadwal 0,2 dtk ke depan) → tempo stabil walau frame rate HP turun.
  * Pergantian dunia memakai crossfade; volume musik terpisah dari efek suara dan bisa dimatikan di Menu.
  */
@@ -75,12 +76,61 @@ const ANGKASA_AKOR = [
   [48, 52, 55, 59],
   [43, 50, 54, 57],
 ];
-const PODIUM_MELODI = [
-  [67, 67, 67, 72, -1, 76, 74, 72],
-  [74, 74, 74, 79, -1, 77, 76, 74],
-  [72, 76, 79, 84, -1, 81, 79, 77],
-  [76, 74, 72, 74, 72, -1, 72, -1],
+// Lagu kemenangan podium — komposisi orisinal EDUVERSE (bukan kutipan/tiruan lagu mana pun).
+// Tiap birama: [nada MIDI, mulai (1/8), panjang (1/8)].
+const PODIUM_LAGU: [number, number, number][][] = [
+  [[67, 0, 2], [72, 2, 2], [76, 4, 3], [74, 7, 1]],
+  [[72, 0, 2], [69, 2, 2], [76, 4, 4]],
+  [[77, 0, 3], [76, 3, 1], [74, 4, 2], [72, 6, 2]],
+  [[74, 0, 6], [67, 6, 2]],
+  [[67, 0, 2], [72, 2, 2], [79, 4, 3], [77, 7, 1]],
+  [[76, 0, 2], [74, 2, 2], [72, 4, 2], [76, 6, 2]],
+  [[81, 0, 3], [79, 3, 1], [77, 4, 2], [74, 6, 2]],
+  [[72, 0, 6], [79, 6, 1], [84, 7, 1]],
 ];
+// Akor pengiring per birama (setengah birama pertama, setengah kedua)
+const PODIUM_AKOR: [number[], number[]][] = [
+  [[48, 52, 55], [48, 52, 55]],
+  [[45, 48, 52], [45, 48, 52]],
+  [[41, 45, 48], [41, 45, 48]],
+  [[43, 47, 50], [43, 47, 50]],
+  [[48, 52, 55], [48, 52, 55]],
+  [[40, 44, 47], [45, 48, 52]],
+  [[41, 45, 48], [43, 47, 50]],
+  [[48, 52, 55], [48, 52, 55]],
+];
+/** Fase acara podium (varian tema): pembukaan, juara 3, juara 2, crescendo, juara 1, puncak, sesudah acara. */
+const pod = { variant: '#', base: 0 };
+function podiumLagu(ls: number, v: Voice, m: MusicEngine, k: { drums: boolean; vol: number; crashEvery?: number }) {
+  const bar = Math.floor(ls / 16) % 8;
+  const s = ls % 16;
+  const [c1, c2] = PODIUM_AKOR[bar]!;
+  const ch = s < 8 ? c1 : c2;
+  if (s === 0 || s === 8) {
+    m.pad(ch.map((n) => mtof(n + 12)), v.t, v.len * 8, 0.055 * k.vol); // string
+    m.timpani(mtof(ch[0]! - 12), v.t, 0.18 * k.vol);
+  }
+  if (s % 2 === 0) m.bass(mtof(ch[0]! - 12 + (s % 8 === 4 ? 7 : 0)), v.t, v.len * 1.7, 0.22 * k.vol);
+  if (s % 4 === 2) for (const n of ch) m.brass(mtof(n + 12), v.t, v.len * 1.1, 0.026 * k.vol);
+  for (const [n, st, len] of PODIUM_LAGU[bar]!) {
+    if (st * 2 !== s) continue;
+    m.brass(mtof(n), v.t, v.len * len * 2 * 0.95, 0.085 * k.vol);
+    m.brass(mtof(n - 12), v.t, v.len * len * 2 * 0.95, 0.04 * k.vol);
+    m.bell(mtof(n + 12), v.t, v.len * 3, 0.012 * k.vol);
+  }
+  if (k.drums) {
+    if (s === 0 || s === 8 || s === 10) m.kick(v.t, 0.5 * k.vol);
+    if (s === 4 || s === 12) m.snare(v.t, 0.26 * k.vol);
+    if (s % 2 === 0) m.hat(v.t, 0.04 * k.vol);
+    if (bar % 4 === 3 && s >= 12) m.snare(v.t + v.len / 2, 0.14 * k.vol);
+    if (s === 0 && bar % (k.crashEvery ?? 4) === 0) m.crash(v.t, 0.14 * k.vol);
+  }
+}
+function drumRoll(v: Voice, m: MusicEngine, vel: number) {
+  m.snare(v.t, vel);
+  m.snare(v.t + v.len / 2, vel * 0.85);
+}
+
 
 const THEMES: Record<ThemeId, Theme> = {
   kota: {
@@ -191,20 +241,83 @@ const THEMES: Record<ThemeId, Theme> = {
     },
   },
   podium: {
-    bpm: 128,
-    gain: 0.6,
+    bpm: 120,
+    gain: 0.62,
     play(v, m) {
-      const ch = C_MAJ[[0, 3, 1, 0][v.bar % 4]!]!;
-      if (v.s % 4 === 0) m.kick(v.t, 0.5);
-      if (v.s === 4 || v.s === 12) m.snare(v.t, 0.28);
-      if (v.s >= 13 && v.bar % 4 === 3) m.snare(v.t, 0.16); // gulungan drum
-      if (v.s === 0 && v.bar % 4 === 0) m.crash(v.t, 0.12);
-      if (v.s % 2 === 0) m.bass(mtof(ch[0]! - 12), v.t, v.len * 1.5, 0.24);
-      if (v.s % 4 === 2) for (const n of ch) m.brass(mtof(n + 12), v.t, v.len * 1.2, 0.035);
-      if (v.s % 2 === 0) {
-        const n = PODIUM_MELODI[v.bar % 4]![v.s / 2]!;
-        if (n > 0) m.brass(mtof(n), v.t, v.len * 1.9, 0.08);
+      if (v.variant !== pod.variant) {
+        pod.variant = v.variant;
+        pod.base = v.step;
       }
+      const ls = v.step - pod.base;
+      const s = ls % 16;
+      switch (v.variant) {
+        case 'pembukaan': {
+          // drum roll menegangkan + string bertahan
+          drumRoll(v, m, 0.05 + 0.1 * Math.min(1, ls / 48));
+          if (s === 0) {
+            m.pad([48, 55, 62].map(mtof), v.t, v.len * 16, 0.05);
+            m.timpani(mtof(36), v.t, 0.2);
+          }
+          break;
+        }
+        case 'juara3': {
+          if (ls === 0) (m.crash(v.t, 0.1), m.timpani(mtof(36), v.t, 0.3));
+          const ch = [[48, 52, 55], [41, 45, 48]][Math.floor(ls / 16) % 2]!;
+          if (s === 0) m.pad(ch.map((n) => mtof(n + 12)), v.t, v.len * 16, 0.05);
+          if (s === 0 || s === 8) m.timpani(mtof(ch[0]! - 12), v.t, 0.16);
+          if (s % 4 === 0) m.pluck(mtof(ch[(s / 4) % 3]! + 24), v.t, v.len * 3, 0.045);
+          const mot = [67, 72, 76];
+          if (ls < 16 && s >= 4 && s <= 8 && s % 2 === 0) m.brass(mtof(mot[(s - 4) / 2]!), v.t, v.len * (s === 8 ? 7 : 1.8), 0.07);
+          break;
+        }
+        case 'juara2': {
+          if (ls === 0) (m.crash(v.t, 0.14), m.timpani(mtof(31), v.t, 0.35));
+          const ch = [[45, 48, 52], [41, 45, 48], [48, 52, 55], [43, 47, 50]][Math.floor(ls / 16) % 4]!;
+          if (s === 0) m.pad(ch.map((n) => mtof(n + 12)), v.t, v.len * 16, 0.055);
+          if (s % 4 === 0) m.kick(v.t, 0.42);
+          if (s === 4 || s === 12) m.snare(v.t, 0.22);
+          if (s % 2 === 0) m.hat(v.t, 0.035);
+          if (s % 2 === 0) m.bass(mtof(ch[0]! - 12), v.t, v.len * 1.6, 0.2);
+          m.pluck(mtof(ch[s % 3]! + 24 + (s >= 8 ? 12 : 0)), v.t, v.len * 1.2, 0.03); // ostinato string
+          if (s === 2 || s === 10) for (const n of ch) m.brass(mtof(n + 12), v.t, v.len * 2, 0.03);
+          break;
+        }
+        case 'crescendo': {
+          // drum roll memuncak + timpani makin rapat + string naik
+          const k = Math.min(1, ls / 28);
+          drumRoll(v, m, 0.06 + 0.26 * k);
+          if (s % (k < 0.5 ? 8 : 4) === 0) m.timpani(mtof(43 - 12), v.t, 0.12 + 0.25 * k);
+          if (ls % 16 === 0) m.pad([55, 59, 62, 67].map((n) => mtof(n + (ls >= 16 ? 12 : 0))), v.t, v.len * 16, 0.05 + 0.03 * k);
+          break;
+        }
+        case 'juara1': {
+          if (ls === 0) {
+            m.crash(v.t, 0.2);
+            m.timpani(mtof(36), v.t, 0.45);
+            for (const n of [48, 55, 60, 64, 67, 72]) m.brass(mtof(n), v.t, v.len * 6, 0.05);
+          }
+          // fanfare pembuka (2 birama), lalu lagu kemenangan
+          if (ls < 32) {
+            const fan: Record<number, [number, number]> = { 6: [67, 1.8], 8: [72, 1.8], 10: [76, 1.8], 12: [79, 3.6], 16: [76, 1.8], 18: [79, 1.8], 20: [84, 11] };
+            const f = fan[ls];
+            if (f) (m.brass(mtof(f[0]), v.t, v.len * f[1], 0.09), m.brass(mtof(f[0] - 12), v.t, v.len * f[1], 0.045));
+            if (s % 4 === 0) m.kick(v.t, 0.45);
+            if (s % 2 === 0) m.timpani(mtof(36), v.t, 0.08);
+            if (ls === 16) m.crash(v.t, 0.12);
+          } else podiumLagu(ls - 32, v, m, { drums: true, vol: 1 });
+          break;
+        }
+        case 'puncak':
+          podiumLagu(ls, v, m, { drums: true, vol: 1.1, crashEvery: 2 });
+          break;
+        default:
+          // sesudah acara / adegan podium tanpa acara: versi lembut tanpa drum
+          podiumLagu(ls, v, m, { drums: false, vol: 0.6 });
+      }
+    },
+    ambience(m, out) {
+      // gumam penonton di arena
+      return m.noiseBed(out, { type: 'bandpass', freq: 650, gain: 0.012, lfo: 0.3, lfoDepth: 0.006 });
     },
   },
 };
@@ -276,6 +389,7 @@ export class MusicEngine {
       setTimeout(() => old.bus.disconnect(), 2500);
     }
     this.variant = '';
+    pod.variant = '#';
     const th = THEMES[id];
     const bus = c.createGain();
     bus.gain.value = 0;
@@ -480,6 +594,74 @@ export class MusicEngine {
   }
   crash(t: number, v: number) {
     this.noiseHit(t, 1.2, v, 'highpass', 4500);
+  }
+  timpani(f: number, t: number, v: number) {
+    const c = this.c!;
+    const o = c.createOscillator();
+    const g = c.createGain();
+    o.frequency.setValueAtTime(f * 1.15, t);
+    o.frequency.exponentialRampToValueAtTime(f, t + 0.12);
+    this.env(g, t, 0.005, v, 0.9, 0.35);
+    o.connect(g).connect(this.target!);
+    o.start(t);
+    o.stop(t + 2.5);
+    this.noiseHit(t, 0.08, v * 0.3, 'lowpass', 400);
+  }
+
+  // ───────────── penonton (acara podium) ─────────────
+  /**
+   * Tepuk tangan & sorak penonton yang disintesis (bukan rekaman). level 0..1, dur detik.
+   * Ikut tombol Musik di Menu (mati = senyap). Mengembalikan false bila audio belum aktif.
+   */
+  crowd(kind: 'tepuk' | 'sorak', level: number, dur: number): boolean {
+    if (!this.enabled || !this.ensure() || !this.c || !this.out || this.c.state !== 'running') return false;
+    const c = this.c;
+    this.target = this.out;
+    const t0 = c.currentTime + 0.03;
+    // tepuk tangan: banyak tepukan pendek acak (jumlah dibatasi agar ringan di HP)
+    const claps = Math.min(260, Math.round(dur * (kind === 'sorak' ? 26 : 20) * (0.5 + level)));
+    for (let i = 0; i < claps; i++) {
+      const t = t0 + Math.random() * dur;
+      const fade = 1 - Math.max(0, (t - t0) / dur - 0.7) / 0.3; // memudar di 30% akhir
+      this.noiseHit(t, 0.025 + Math.random() * 0.02, (0.03 + Math.random() * 0.05) * level * fade, 'bandpass', 1100 + Math.random() * 1700);
+    }
+    if (kind === 'sorak') {
+      // riuh: derau berformant + beberapa suara "horee" bernada naik
+      const src = c.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      const bq = c.createBiquadFilter();
+      bq.type = 'bandpass';
+      bq.frequency.value = 900;
+      bq.Q.value = 0.7;
+      const g = c.createGain();
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(0.09 * level, t0 + 0.35);
+      g.gain.setTargetAtTime(0.0001, t0 + dur * 0.6, dur * 0.2);
+      src.connect(bq).connect(g).connect(this.out);
+      src.start(t0);
+      src.stop(t0 + dur + 1);
+      const voices = Math.round(4 + 6 * level);
+      for (let i = 0; i < voices; i++) {
+        const t = t0 + Math.random() * 0.5;
+        const f = 260 + Math.random() * 260;
+        const o = c.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(f, t);
+        o.frequency.linearRampToValueAtTime(f * 1.5, t + 0.35);
+        o.frequency.linearRampToValueAtTime(f * 1.3, t + 0.9);
+        const fm = c.createBiquadFilter();
+        fm.type = 'bandpass';
+        fm.frequency.value = 800 + Math.random() * 500;
+        fm.Q.value = 3;
+        const vg = c.createGain();
+        this.env(vg, t, 0.08, 0.018 * level, 0.6 + Math.random() * 0.6, 0.25);
+        o.connect(fm).connect(vg).connect(this.out);
+        o.start(t);
+        o.stop(t + 2.5);
+      }
+    }
+    return true;
   }
 
   // ───────────── ambience ─────────────

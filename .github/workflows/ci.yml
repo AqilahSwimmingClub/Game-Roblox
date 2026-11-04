@@ -117,6 +117,10 @@ jobs:
         run: node tests/e2e/touch-worlds.mjs
         env:
           SHOTS: e2e-shots
+      - name: Podium Juara 3D — guru + 3 siswa browser + 3 bot, sinkron, tanpa ulang setelah sambung ulang
+        run: node tests/e2e/podium.mjs
+        env:
+          SHOTS: e2e-shots
       - name: Bank Soal Guru (sumber soal, impor Excel/Word, duplikat, pilih/acak, gambar, riwayat)
         run: node tests/integration/question-bank.mjs
       - run: node tests/security/abuse.mjs

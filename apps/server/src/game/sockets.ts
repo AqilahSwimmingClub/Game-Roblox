@@ -66,6 +66,7 @@ export function attachSockets(io: Server, registry: RuntimeRegistry, opts: { tru
           roster: rt.rosterList(),
           preset: [...rt.students.values()].some((x) => x.preset),
           requireApproval: rt.settings.requireApproval,
+          podium: rt.podiumPayload(),
           me: s ? { absen: s.absen, nama: s.nama, avatar: s.avatar, approved: s.approved, poin: s.score, benar: s.correct, dijawab: s.answered, lastScene: s.lastScene, dompet: { saldo: s.wallet, tas: { ...s.bag } } } : null,
         });
       } catch (e) {

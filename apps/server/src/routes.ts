@@ -1,5 +1,7 @@
 /** REST API: autentikasi guru, sesi, bank soal, impor/ekspor, endpoint publik. */
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import multer from 'multer';
 import rateLimit from 'express-rate-limit';
@@ -82,6 +84,15 @@ function poolOf(settings: Partial<SessionSettings>, ids: string[] | null | undef
 
 const ACTIVE_WORLDS = new Set(WORLDS.filter((w) => w.tersedia).map((w) => w.id));
 
+/** SHA commit yang ditulis workflow deploy (apps/server/BUILD_COMMIT) saat image dibangun dari unggahan langsung. */
+function buildCommitFile(): string {
+  try {
+    return fs.readFileSync(path.resolve(process.cwd(), 'BUILD_COMMIT'), 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
 export function apiRouter(registry: RuntimeRegistry) {
   const r = express.Router();
   const authLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: true, legacyHeaders: false, message: { error: 'Terlalu banyak percobaan masuk. Coba lagi 15 menit lagi.' } });
@@ -95,7 +106,7 @@ export function apiRouter(registry: RuntimeRegistry) {
 
   // Versi kode yang sedang berjalan (Railway/Render mengisi SHA commit otomatis) — untuk memastikan backend sudah terbaru.
   const build = {
-    commit: (process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.RENDER_GIT_COMMIT ?? process.env.GIT_SHA ?? '').slice(0, 7) || null,
+    commit: (process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.RENDER_GIT_COMMIT ?? process.env.GIT_SHA ?? buildCommitFile()).slice(0, 7) || null,
     branch: process.env.RAILWAY_GIT_BRANCH ?? process.env.RENDER_GIT_BRANCH ?? null,
     fitur: ['heartbeat-20-25', 'rejoin-pulih', 'podium-sinkron'],
   };

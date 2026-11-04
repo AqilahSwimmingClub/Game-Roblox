@@ -28,3 +28,4 @@ e2e-shots/
 loadtest-ci.json
 server.log
 data-sekolah/
+apps/server/BUILD_COMMIT

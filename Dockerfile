@@ -19,7 +19,8 @@ COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules node_modules
 COPY --from=build /app/packages/shared/package.json packages/shared/
 COPY --from=build /app/packages/shared/dist packages/shared/dist
-COPY --from=build /app/apps/server/package.json apps/server/
+# BUILD_COMMIT (opsional) ditulis workflow deploy → /api/health menampilkan versi yang berjalan
+COPY --from=build /app/apps/server/package.json /app/apps/server/BUILD_COMMI[T] apps/server/
 COPY --from=build /app/apps/server/dist apps/server/dist
 COPY --from=build /app/apps/game/dist apps/game/dist
 COPY --from=build /app/apps/dashboard/dist apps/dashboard/dist

@@ -34,7 +34,6 @@ export class Stage {
   spawn = { x: 0, y: 0.2, z: 0 };
   private extras = new THREE.Group();
   private portalDiscs: { mesh: THREE.Mesh; world: WorldId; x: number; z: number }[] = [];
-  private podiumAvatars: AvatarMesh[] = [];
   private lifts: { id: string; label: string; x: number; y: number; z: number }[] = [];
   private rak: { id: string; label: string; x: number; y: number; z: number; boxIndex: number } | null = null;
   private rakOpenUntil = 0;
@@ -171,12 +170,16 @@ export class Stage {
     this.collision.addBoxes(p.boxes);
   }
 
-  /** Tempatkan avatar juara di podium: 1 tengah (tertinggi), 2 kiri, 3 kanan. */
-  /** Karakter juara yang sedang tampil di podium (untuk uji otomatis). */
+  /**
+   * Avatar juara di podium (karakter asli pilihan siswa): 1 tengah (tertinggi), 2 kiri, 3 kanan.
+   * Dibuat tersembunyi; PodiumShow memunculkan & menaikkan satu per satu sesuai linimasa acara.
+   */
+  podiumAvatars: { rank: number; av: AvatarMesh; anim: number; slot: { x: number; y: number; z: number }; label: THREE.Object3D }[] = [];
+  /** Karakter juara di panggung (untuk uji otomatis). */
   podiumShown: { rank: number; nama: string; karakter: number }[] = [];
-  showWinners(top3: PodiumEntry[]) {
+  showWinners(top3: PodiumEntry[], hidden = false) {
     this.podiumShown = top3.map((e) => ({ rank: e.rank, nama: e.nama, karakter: e.avatar.karakter }));
-    for (const a of this.podiumAvatars) a.dispose();
+    for (const a of this.podiumAvatars) a.av.dispose();
     this.podiumAvatars = [];
     const layout = buildPodium();
     for (const e of top3) {
@@ -185,6 +188,7 @@ export class Stage {
       const av = new AvatarMesh(e.avatar);
       av.root.position.set(slot.x, slot.y, slot.z);
       av.root.rotation.y = 0; // menghadap penonton (+Z)
+      av.root.visible = !hidden;
       av.emote = 1;
       const trophy = new THREE.Group();
       const gold = new THREE.MeshBasicMaterial({ color: e.rank === 1 ? 0xffc93c : e.rank === 2 ? 0xc9d3e0 : 0xd98c4a });
@@ -198,7 +202,7 @@ export class Stage {
       label.position.y = 3;
       av.root.add(label);
       this.engine.scene.add(av.root);
-      this.podiumAvatars.push(av);
+      this.podiumAvatars.push({ rank: e.rank, av, anim: 0, slot: { ...slot }, label });
     }
   }
 
@@ -257,7 +261,7 @@ export class Stage {
     this.extras.children.forEach((c) => {
       if (c.userData.edo) c.position.y = Math.sin(t * 2) * 0.12;
     });
-    for (const a of this.podiumAvatars) a.update(dt, 0, 0);
+    for (const a of this.podiumAvatars) a.av.update(dt, a.anim, 0);
     if (this.rak && this.rakOpenUntil && t > this.rakOpenUntil) {
       this.rakOpenUntil = 0;
       this.collision.disabled.delete(this.rak.boxIndex);
@@ -271,7 +275,7 @@ export class Stage {
     this.points?.dispose();
     this.bus?.dispose();
     this.living?.dispose();
-    for (const a of this.podiumAvatars) a.dispose();
+    for (const a of this.podiumAvatars) a.av.dispose();
     this.extras.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh) {

@@ -181,6 +181,19 @@ export interface FinalResultMsg {
   top3: PodiumEntry[];
 }
 
+/** Jeda antara guru menekan tombol dan acara podium dimulai (agar semua HP sempat memuat panggung). */
+export const PODIUM_LEAD_MS = 2500;
+
+/** Event podium:show — linimasa acara penghargaan yang sama untuk semua siswa. */
+export interface PodiumShowMsg {
+  /** Id acara (= waktu server saat guru menekan tombol). Id baru = acara baru (mis. "Tampilkan Podium Lagi"). */
+  id: number;
+  /** Jam server (ms) saat acara dimulai. */
+  startAt: number;
+  top3: PodiumEntry[];
+  total: number;
+}
+
 export interface PodiumEntry {
   rank: number;
   nama: string;

@@ -6,7 +6,7 @@
  */
 import { io, type Socket } from 'socket.io-client';
 import { SERVER_URL, SERVER_LABEL } from './server.js';
-import { EV, type ItemOffer, type ItemLine, type OfferKind, type Bag, type WalletMsg, type VehicleStateMsg, type AnswerPayload, type AvatarConfig, type SceneId, type SessionPublicState, type RosterEntry, type PublicQuestion, type AnswerResultMsg, type ActivePoint } from '@eduverse/shared';
+import { EV, type PodiumShowMsg, type ItemOffer, type ItemLine, type OfferKind, type Bag, type WalletMsg, type VehicleStateMsg, type AnswerPayload, type AvatarConfig, type SceneId, type SessionPublicState, type RosterEntry, type PublicQuestion, type AnswerResultMsg, type ActivePoint } from '@eduverse/shared';
 
 export interface Me {
   absen: number;
@@ -27,6 +27,8 @@ export interface JoinOk {
   preset: boolean;
   requireApproval: boolean;
   me: Me | null;
+  /** Acara podium yang sedang/telah berlangsung (server baru) — dilanjutkan, tidak diulang. */
+  podium?: PodiumShowMsg | null;
 }
 export type Fail = { ok: false; error: string };
 
