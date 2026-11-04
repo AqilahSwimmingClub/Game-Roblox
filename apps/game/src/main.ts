@@ -341,6 +341,7 @@ net.on<{ dari: string; itemId: string; qty: number }>(EV.gift, (g) => {
   const it = CATALOG[g.itemId];
   if (!it) return;
   giftsReceived++;
+  wallet.addGift({ dari: g.dari, itemId: g.itemId, qty: g.qty });
   notify(`🎁 ${g.dari} memberimu ${it.ikon} ${it.nama} ×${g.qty}! Ucapkan terima kasih ya.`, 'sukses');
   if (player) effects.sparkle(new THREE.Vector3(player.body.x, player.body.y + 2, player.body.z));
 });

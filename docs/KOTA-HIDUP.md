@@ -41,7 +41,8 @@ bank soal Word/Excel, nilai, leaderboard, podium 3D, kamera third-person, multip
   sambung ulang. Status diubah di memori sebelum menulis ke database (mencegah pembelian ganda memakai saldo yang sama) dan
   dikembalikan bila penulisan gagal. Dashboard Guru menampilkan kolom **Uang · Tas** per siswa.
 - **Memberi barang ke teman**: di Tas tekan **BERI** pada sebuah barang → pilih teman yang berdiri di dekatmu → 1 barang
-  pindah ke tas teman; teman mendapat pemberitahuan "🎁 … memberimu …". **Hanya barang** yang bisa diberikan — uang tidak
+  pindah ke tas teman; teman mendapat pemberitahuan "🎁 … memberimu …", tombol Tas-nya diberi lencana **🎁** yang
+  berdenyut sampai tas dibuka, dan tasnya menampilkan **Hadiah terbaru** (siapa memberi apa) — banner 3 detik saja mudah terlewat. **Hanya barang** yang bisa diberikan — uang tidak
   (agar tidak ada siswa yang meminta-minta uang). Server memeriksa: teman online di instance yang sama, jarak ≤ 6 m,
   bukan diri sendiri, barang ada di tas pemberi, tas penerima muat, 1–3 barang sekali beri, maksimal 10 pemberian/menit.
   Kedua tas diperbarui dalam satu transaksi dan setiap pemberian dicatat di tabel `gifts` (migrasi `005_gifts.sql`).

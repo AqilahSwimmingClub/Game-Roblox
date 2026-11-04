@@ -42,6 +42,23 @@ export class WalletStore {
   count() {
     return bagCount(this.tas);
   }
+
+  /** Hadiah yang diterima dari teman (terbaru di depan); `unseen` = belum dilihat di tas. */
+  gifts: { dari: string; itemId: string; qty: number }[] = [];
+  unseen = 0;
+
+  addGift(g: { dari: string; itemId: string; qty: number }) {
+    this.gifts.unshift(g);
+    this.gifts.length = Math.min(this.gifts.length, 5);
+    this.unseen++;
+    for (const f of this.fns) f();
+  }
+
+  markSeen() {
+    if (!this.unseen) return;
+    this.unseen = 0;
+    for (const f of this.fns) f();
+  }
 }
 
 /** Bagian toko di dialog pedagang: daftar barang, jumlah (1–5), total, tombol BELI, hitungan kembalian. */
@@ -145,8 +162,20 @@ export function openBag(store: WalletStore, use: (itemId: string) => Promise<Use
       ),
     );
   };
+  const giftsEl = h('div', { class: 'col', style: 'gap:4px' });
   const render = () => {
     saldoEl.textContent = formatRp(store.saldo);
+    giftsEl.replaceChildren(
+      ...(store.gifts.length
+        ? [
+            h('div', { style: 'font-weight:900' }, '🎁 Hadiah terbaru'),
+            ...store.gifts.map((g) => {
+              const it = CATALOG[g.itemId];
+              return h('div', { class: 'gift-row', style: 'font-weight:800;background:#F3E8FF;border-radius:10px;padding:4px 10px' }, `${it?.ikon ?? '🎁'} ${it?.nama ?? g.itemId} ×${g.qty} dari ${g.dari}`);
+            }),
+          ]
+        : []),
+    );
     const ids = Object.keys(store.tas).filter((k) => store.tas[k]! > 0 && CATALOG[k]);
     if (!ids.length) {
       list.replaceChildren(h('div', { class: 'muted', style: 'font-weight:800;padding:8px' }, 'Tasmu masih kosong. Kunjungi pedagang bertanda ! dan pilih LIHAT BARANG.'));
@@ -195,6 +224,7 @@ export function openBag(store: WalletStore, use: (itemId: string) => Promise<Use
       'div',
       { class: 'panel card col pop', style: 'max-width:min(520px,94vw);max-height:calc(100dvh - 24px);overflow:auto;gap:8px;padding:14px 18px' },
       h('div', { class: 'row', style: 'justify-content:space-between;align-items:center' }, h('h2', { style: 'margin:0' }, '🎒 Tas'), h('span', { style: 'font-weight:900' }, '👛 ', saldoEl)),
+      giftsEl,
       list,
       picker,
       msg,
@@ -204,4 +234,5 @@ export function openBag(store: WalletStore, use: (itemId: string) => Promise<Use
   );
   document.body.classList.add('mv-dialog');
   ui.add(bagEl);
+  store.markSeen();
 }

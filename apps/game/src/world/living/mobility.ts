@@ -150,7 +150,12 @@ export class Mobility {
     this.jetToggle.classList.add('mv-jet-toggle');
     this.walletBtn = tapBtn('🎒 Tas', 'putih', () => this.openBag());
     this.walletBtn.classList.add('mv-wallet');
-    const renderWallet = () => (this.walletBtn.textContent = `🎒 ${formatRp(this.host.wallet.saldo)}`);
+    // lencana 🎁 tetap tampil sampai tas dibuka (pemberitahuan banner hanya 3 detik dan mudah terlewat)
+    const renderWallet = () => {
+      const w = this.host.wallet;
+      this.walletBtn.textContent = `🎒 ${formatRp(w.saldo)}${w.unseen ? ` · 🎁${w.unseen}` : ''}`;
+      this.walletBtn.classList.toggle('ada-hadiah', w.unseen > 0);
+    };
     renderWallet();
     this.host.wallet.on(renderWallet);
     this.jetToggle.style.display = 'none';
@@ -573,6 +578,7 @@ export class Mobility {
       fuel: Math.round(this.fuel),
       saldo: this.host.wallet.saldo,
       tas: { ...this.host.wallet.tas },
+      giftsUnseen: this.host.wallet.unseen,
       prompt: this.currentPrompt?.kind ?? null,
       promptId: this.currentPrompt?.id ?? null,
       ...this.stats,

@@ -312,8 +312,16 @@ try {
     await shot(a.page, 's3e-beri-barang');
     await a.page.getByRole('button', { name: 'Tutup', exact: true }).click();
     await b.page.waitForFunction(() => window.__edu.giftsReceived >= 1 && window.__edu.mobility.tas['air-mineral'] === 1, null, { timeout: 8000 });
-    await b.page.getByText(/Raka memberimu/).first().waitFor({ timeout: 5000 });
+    // Notifikasi tampil bergiliran (3,2 dtk per banner, hingga 4 antre + 1 tampil ≈ 16 dtk) — di CI yang lambat
+    // pesan hadiah bisa menunggu di belakang pesan lain, jadi beri waktu sepanjang antrean itu.
+    // Banner pemberitahuan hanya 3,2 dtk; yang dicek adalah tanda yang bertahan: lencana 🎁 di tombol Tas
+    // dan daftar "Hadiah terbaru" di dalam tas.
+    await b.page.locator('.mv-wallet.ada-hadiah', { hasText: '🎁1' }).waitFor({ timeout: 10000 });
+    await b.page.keyboard.press('KeyB');
+    await b.page.locator('.gift-row', { hasText: 'Air Mineral ×1 dari Raka' }).waitFor({ timeout: 5000 });
     await shot(b.page, 's3f-terima-barang');
+    await b.page.getByRole('button', { name: 'Tutup', exact: true }).click();
+    await b.page.waitForFunction(() => window.__edu.mobility.giftsUnseen === 0, null, { timeout: 5000 });
     const tasA1 = (await edu(a.page)).mobility.tas;
     if ((tasA1['air-mineral'] ?? 0) !== (tasA0['air-mineral'] ?? 0) - 1) throw new Error(`tas A ${JSON.stringify(tasA0)} → ${JSON.stringify(tasA1)}`);
     const none = await a.page.evaluate((id) => window.__eduDebug.raw.give(id, 'air-mineral', 1), idB);
