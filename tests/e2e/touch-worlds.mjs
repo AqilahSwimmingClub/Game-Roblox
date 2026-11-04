@@ -173,7 +173,7 @@ try {
     const ok = [];
     for (let k = 0; k < 20; k++) {
       await A.page.getByRole('button', { name: 'Menu' }).tap();
-      await A.page.getByRole('button', { name: 'Ganti Avatar' }).tap();
+      await A.page.getByRole('button', { name: 'Ganti Karakter' }).tap();
       await A.page.locator(`.char-card[data-karakter="${k}"]`).tap();
       await A.page.getByRole('button', { name: 'SIAP!' }).tap();
       await A.page.waitForFunction((kk) => window.__edu?.myChar === kk && !document.querySelector('.char-card'), k, { timeout: 20000 });
