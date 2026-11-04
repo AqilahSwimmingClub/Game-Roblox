@@ -5,6 +5,8 @@ export function loginView(onDone: () => void): HTMLElement {
   let mode: 'masuk' | 'daftar' = 'masuk';
   const err = h('div', { class: 'err', role: 'alert' });
   const email = h('input', { class: 'in', type: 'email', autocomplete: 'username', placeholder: 'nama@sekolah.sch.id' }) as HTMLInputElement;
+  // Ingat email saja pada perangkat ini. Kata sandi tetap dikelola Password Manager browser.
+  try { email.value = localStorage.getItem('eduverse.guru.lastEmail') ?? ''; } catch { /* penyimpanan tidak tersedia */ }
   const pw = h('input', { class: 'in', type: 'password', autocomplete: 'current-password', placeholder: 'Minimal 8 karakter' }) as HTMLInputElement;
   const name = h('input', { class: 'in', autocomplete: 'name', placeholder: 'mis. Bu Sari' }) as HTMLInputElement;
   const code = h('input', { class: 'in', placeholder: 'Dari admin sekolah (kosongkan untuk guru pertama)' }) as HTMLInputElement;
@@ -19,6 +21,7 @@ export function loginView(onDone: () => void): HTMLElement {
       }
       const r = await api<{ token: string }>('/auth/login', { method: 'POST', json: { email: email.value.trim(), password: pw.value } });
       setToken(r.token);
+      try { localStorage.setItem('eduverse.guru.lastEmail', email.value.trim()); } catch { /* abaikan */ }
       onDone();
     } catch (e) {
       err.textContent = (e as Error).message;
