@@ -7,7 +7,7 @@ declare t text; r text; res text; ok boolean;
 begin
   foreach r in array array['anon', 'authenticated'] loop
     res := '';
-    foreach t in array array['teachers','questions','sessions','session_roster','answers','import_batches','schema_migrations'] loop
+    foreach t in array array['teachers','questions','sessions','session_roster','answers','import_batches','schema_migrations','purchases'] loop
       begin
         execute format('set local role %I', r);
         execute format('select count(*) from public.%I', t);

@@ -106,6 +106,44 @@ try {
     }
   }
 
+  // 3b. Toko & tas: beli barang dari pedagang (uang virtual), pakai makanan → energi jetpack penuh
+  {
+    const v = L.vendors.find((x) => x.id === 'V01'); // Bu Sari, pedagang buah
+    await api('teleport', v.x, 0.3, v.z + 2, Math.PI);
+    await wait(900);
+    const s0 = await st();
+    if (s0.prompt !== 'pedagang') fail('Toko pedagang', `prompt=${s0.prompt}`);
+    else {
+      await api('action');
+      await page.getByRole('button', { name: 'LIHAT BARANG', exact: true }).click();
+      await page.getByRole('button', { name: 'Tambah Apel', exact: true }).click(); // jumlah 2
+      await page.getByRole('button', { name: /^BELI Rp6\.000$/ }).click();
+      await wait(400);
+      const txt = await page.locator('body').innerText();
+      await shot('toko');
+      // coba beli melebihi uang → ditolak dengan selisih
+      for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Tambah Mangga', exact: true }).click();
+      await page.getByRole('button', { name: /^BELI Rp25\.000$/ }).click();
+      await wait(300);
+      const txt2 = await page.locator('body').innerText();
+      await page.getByRole('button', { name: 'Tutup', exact: true }).click();
+      const s1 = await st();
+      await api('openBag');
+      await wait(300);
+      await shot('tas');
+      await page.getByRole('button', { name: 'PAKAI', exact: true }).first().click();
+      await wait(300);
+      const s2 = await st();
+      await page.getByRole('button', { name: 'Tutup', exact: true }).click();
+      const okBuy = s1.saldo === s0.saldo - 6000 && s1.tas.apel === 2 && /2 × Rp3\.000 = Rp6\.000/.test(txt);
+      const okReject = /Uangmu kurang Rp/.test(txt2) && s1.saldo === s0.saldo - 6000;
+      const okUse = s2.tas.apel === 1 && s2.mobility.itemsUsed === 1;
+      okBuy && okReject && okUse
+        ? pass('Pedagang menjual barang: beli, tolak bila uang kurang, tas, pakai makanan', `saldo ${s0.saldo} → ${s1.saldo}, tas ${JSON.stringify(s1.tas)} → ${JSON.stringify(s2.tas)}`)
+        : fail('Toko pedagang', `beli=${okBuy} tolak=${okReject} pakai=${okUse} s1=${JSON.stringify({ saldo: s1.saldo, tas: s1.tas })} s2=${JSON.stringify(s2.tas)}`);
+    }
+  }
+
   // 4–6. Mobil, motor, sepeda: naik → gas → rem → turun
   for (const kind of ['mobil', 'motor', 'sepeda']) {
     const v = L.vehicles.find((x) => x.kind === kind);

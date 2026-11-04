@@ -251,6 +251,27 @@ try {
     await shot(a.page, 's3d-bandara');
     console.log(`    tiba di (${e.pos.x.toFixed(0)}, ${e.pos.z.toFixed(0)}) · skor ${e.score} · karakter ${e.myChar}`);
   });
+  await step('Siswa A membeli di kios Bandara (server): saldo berkurang, tas bertambah, aturan ditegakkan server', async () => {
+    const far = await a.page.evaluate(() => window.__eduDebug.raw.buy('V01', 'apel', 1));
+    if (far.ok) throw new Error('membeli dari pedagang jauh diterima');
+    await goTo(a.page, 760, 95, 'pedagang');
+    if ((await edu(a.page)).prompt !== 'pedagang') throw new Error(`prompt ${(await edu(a.page)).prompt}`);
+    const fake = await a.page.evaluate(() => window.__eduDebug.raw.buy('V09', 'atlas-indonesia', 1));
+    if (fake.ok || !/tidak dijual/.test(fake.error)) throw new Error('barang yang tidak dijual diterima');
+    const s0 = (await edu(a.page)).mobility.saldo;
+    const r = await a.page.evaluate(() => window.__eduDebug.raw.buy('V09', 'roti', 1));
+    if (!r.ok || r.saldo !== s0 - 6000 || r.tas.roti !== 1) throw new Error(`beli: ${JSON.stringify(r)} saldo awal ${s0}`);
+    const over = await a.page.evaluate(() => window.__eduDebug.raw.buy('V09', 'roti', 5));
+    if (r.saldo < 30000 && (over.ok || !over.kurang)) throw new Error(`uang kurang tidak ditolak: ${JSON.stringify(over)}`);
+    const air = await a.page.evaluate(() => window.__eduDebug.raw.buy('V09', 'air-mineral', 2));
+    const used = await a.page.evaluate(() => window.__eduDebug.raw.useItem('air-mineral'));
+    if (!air.ok || !used.ok || used.tas['air-mineral'] !== 1) throw new Error(`air/pakai: ${JSON.stringify(air)} ${JSON.stringify(used)}`);
+    await teacher.getByText(/Rp\d[\d.]* · 2 barang/).first().waitFor({ timeout: 10000 });
+    console.log(`    ditolak: "${far.error}" · "${fake.error}" · "${over.error}"`);
+    console.log(`    saldo ${s0} → ${used.saldo}, tas ${JSON.stringify(used.tas)}; Dashboard Guru menampilkan uang & isi tas`);
+  });
+  const tasSebelum = (await edu(a.page)).mobility.tas;
+
   await step('Sambung ulang saat mengendarai: kendaraan dilepas dengan aman, sesi & skor utuh', async () => {
     await goTo(a.page, 685, 171, 'kendaraan');
     if ((await edu(a.page)).prompt !== 'kendaraan') throw new Error(`prompt ${(await edu(a.page)).prompt}`);
@@ -264,7 +285,8 @@ try {
     await a.page.waitForFunction((vid) => window.__edu.vehicles.some((v) => v.id === vid && !v.driver), id, { timeout: 10000 });
     const e = await edu(a.page);
     if (e.score !== scoreBeforeRift) throw new Error('skor berubah');
-    console.log(`    setelah sambung ulang: mode ${e.mobility.mode}, ${id} diparkir (tanpa pengemudi), posisi (${e.pos.x.toFixed(0)}, ${e.pos.z.toFixed(0)}), skor ${e.score}`);
+    if (JSON.stringify(e.mobility.tas) !== JSON.stringify(tasSebelum)) throw new Error(`tas berubah setelah sambung ulang: ${JSON.stringify(e.mobility.tas)} vs ${JSON.stringify(tasSebelum)}`);
+    console.log(`    setelah sambung ulang: mode ${e.mobility.mode}, ${id} diparkir (tanpa pengemudi), posisi (${e.pos.x.toFixed(0)}, ${e.pos.z.toFixed(0)}), skor ${e.score}, tas ${JSON.stringify(e.mobility.tas)} utuh`);
   });
 
   await step('Guru mengakhiri permainan → hasil akhir tampil', async () => {

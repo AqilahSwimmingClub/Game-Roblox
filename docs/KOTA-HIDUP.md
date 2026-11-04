@@ -11,7 +11,8 @@ bank soal Word/Excel, nilai, leaderboard, podium 3D, kamera third-person, multip
 | Lalu lintas NPC: mobil, motor, sepeda, bus mengikuti 7 lintasan jalan, **lajur kiri** | ✅ diuji otomatis | state machine: JALAN · REM_LAMPU · REM_ANTRE · REM_PEJALAN |
 | Lampu lalu lintas (6 simpang) + zebra cross | ✅ diuji otomatis | jam bersama: warna sama di semua perangkat; dua arah tidak pernah hijau bersamaan (unit test) |
 | Pejalan kaki di trotoar (menunggu lampu di penyeberangan, berhenti melihat toko) + warga taman (senam, duduk, mengobrol, bermain) | ✅ | 105 warga disimulasikan, hanya yang dekat dirender (InstancedMesh) |
-| 14 pedagang/warga interaktif (makanan, minuman, buah, buku, alat sekolah, minimarket, warung, polisi lalu lintas, petugas bandara, turis, pemandu museum & teknologi, pak RT) | ✅ diuji otomatis | BICARA · LIHAT BARANG (harga Rp) · TERIMA MISI. **BELI** belum ada (fitur inventaris belum tersedia) |
+| 14 pedagang/warga interaktif (makanan, minuman, buah, buku, alat sekolah, minimarket, warung, polisi lalu lintas, petugas bandara, turis, pemandu museum & teknologi, pak RT) | ✅ diuji otomatis | BICARA · LIHAT BARANG · TERIMA MISI |
+| **Toko & Tas (inventaris)**: 9 pedagang menjual 31 barang virtual; dompet Rupiah virtual; tas; makanan/minuman/buah bisa DIPAKAI | ✅ diuji otomatis (Mode Demo & kelas/server) | lihat "Toko & Tas" |
 | Misi kontekstual: kembalian, pecahan uang, menghitung barang, makanan sehat, literasi, Pancasila, IPAS, Bahasa Inggris, koding, keselamatan lalu lintas, navigasi bandara | ✅ | Mode kelas: soal **dari bank guru, dinilai server**, mapel diutamakan sesuai tempat. Mode Demo: soal latihan lokal |
 | Toko, minimarket, restoran, warung (bangunan bertanda), 5 area parkir + parkir bandara & bisnis | ✅ | |
 | Kendaraan yang bisa dikendarai: sepeda, motor, mobil, bus penumpang, pesawat ringan (27 unit) | ✅ diuji otomatis | naik/turun, kursi, kamera mengikuti, gas/rem/mundur/belok, batas kecepatan, tabrakan, pemulihan |
@@ -25,6 +26,22 @@ bank soal Word/Excel, nilai, leaderboard, podium 3D, kamera third-person, multip
 | Multipemain: pemain lain terlihat berjalan, bersepeda, naik motor/mobil/bus, terbang jetpack, menerbangkan pesawat, keluar dari portal | ✅ diuji (2 browser) | lihat "Sinkronisasi" |
 | Dashboard Guru: kolom lokasi menampilkan mode (mis. "Mengemudi Mobil"), peta sebaran mencakup bandara & gedung tinggi | ✅ | |
 | Supabase PostgreSQL (skema + RLS) | ✅ diterapkan ke proyek Supabase "Game-Roblox" | server game tetap Node otoritatif — lihat bawah |
+
+## Toko & Tas
+
+- **Uang virtual (Rupiah)**: setiap siswa mulai dengan **Rp20.000**; setiap jawaban **benar** (titik soal maupun misi pedagang) menambah **Rp5.000**.
+  Uang & tas **tidak memengaruhi poin/peringkat** — penilaian tetap adil.
+- **Membeli**: dekati pedagang bertanda **!** → LIHAT BARANG → atur jumlah (1–5) → BELI. Layar menampilkan hitungan
+  `jumlah × harga = total` dan `uangmu − total = sisa` (latihan berhitung uang). Uang kurang → ditolak dengan selisihnya.
+- **Tas** (tombol 🎒 di kiri layar, tombol **B** di keyboard): makanan, minuman & buah bisa **PAKAI** → energi jetpack penuh;
+  buku & alat tulis menjadi **koleksi**. Isi maksimal 40 barang.
+- **Mode kelas — dinilai server**: server memeriksa jarak ke pedagang (≤ 5 m), barang memang dijual pedagang itu, jumlah 1–5,
+  saldo cukup, tas muat, batas 20 pembelian/menit. Saldo & tas disimpan per siswa per sesi (`session_roster.wallet`,
+  `session_roster.inventory`, migrasi `004_inventory.sql`), setiap pembelian dicatat di tabel `purchases`, tetap utuh setelah
+  sambung ulang. Status diubah di memori sebelum menulis ke database (mencegah pembelian ganda memakai saldo yang sama) dan
+  dikembalikan bila penulisan gagal. Dashboard Guru menampilkan kolom **Uang · Tas** per siswa.
+- **Mode Demo**: aturan sama, tetapi hanya di memori halaman (tidak menyentuh data kelas).
+- Katalog & aturan ada di `packages/shared/src/kota/shop.ts` (dipakai klien & server).
 
 ## Kontrol
 
@@ -74,11 +91,11 @@ apps/server/src/game/runtime.ts      validasi: naik/turun kendaraan (jarak, kunc
 
 ### Supabase — apa yang dipakai dan mengapa
 
-- **Supabase PostgreSQL** = basis data EDUVERSE. Skema 001–003 sudah diterapkan ke proyek Supabase `Game-Roblox`
+- **Supabase PostgreSQL** = basis data EDUVERSE. Skema 001–004 sudah diterapkan ke proyek Supabase `Game-Roblox`
   (paket Free, region ap-south-1). Migrasi `003_rls_supabase.sql` mengaktifkan **RLS tanpa policy** + mencabut hak
   `anon`/`authenticated`: API publik Supabase tidak bisa membaca kunci jawaban, data siswa, atau hash kata sandi.
   Server Node terhubung langsung sebagai pemilik tabel.
-- **Terverifikasi** (4 Nov 2026) langsung di database Supabase: peran `anon` dan `authenticated` **ditolak** membaca ke-7 tabel,
+- **Terverifikasi** (4 Nov 2026) langsung di database Supabase: peran `anon` dan `authenticated` **ditolak** membaca ke-8 tabel (termasuk `purchases` dari migrasi 004),
   peran server (pemilik tabel) tetap bisa membaca. Skrip ulang: `supabase/verify_rls.sql` (SQL Editor) atau
   `tests/security/supabase-rls.mjs` (lewat REST, butuh `SUPABASE_URL` + kunci publik). Uji integrasi server juga lulus 6/6 dengan
   pemilik tabel **non-superuser** + peran `anon`/`authenticated` yang punya hak bawaan (meniru izin Supabase) — migrasi 003 mencabutnya.
@@ -105,10 +122,10 @@ apps/server/src/game/runtime.ts      validasi: naik/turun kendaraan (jarak, kunc
 | Uji | Hasil |
 |---|---|
 | Typecheck semua paket | lulus |
-| Unit shared (termasuk 7 uji Kota Hidup: tidak tertanam di bangunan, portal berpasangan, misi selalu aktif, batas server ≥ kecepatan klien, lampu tidak hijau bersamaan) | 23/23 |
+| Unit shared (termasuk 7 uji Kota Hidup + 4 uji Toko & Tas: katalog, total & sisa, tolak uang kurang/jumlah tidak sah/barang tidak dijual/tas penuh, pembersihan isi tas) | 27/27 |
 | Integrasi server (PostgreSQL 16, dengan migrasi RLS) | 6/6 |
-| `tests/e2e/living-city.mjs` (Mode Demo, Pixel 7 landscape): berjalan, NPC bergerak & berhenti di lampu merah, pedagang + misi, mobil/motor/sepeda naik-kemudi-turun, tidak menembus bangunan, jetpack naik → mendarat di atap 42 m → turun ke jalan, pesawat lepas landas (90 km/j) → terbang 50 m → mendarat → keluar, portal Alun-alun → Bandara, tidak teleport berulang, peta berpenanda, tanpa galat, tanpa menghubungi server | **15/15** |
-| `tests/e2e/two-players.mjs` (guru + 2 siswa, 3 browser, topologi Vercel↔backend): alur kelas lama + server menolak kendaraan/portal/jetpack dari jauh, **B melihat A mengendarai mobil**, kendaraan terparkir di posisi baru untuk semua, **B melihat jetpack A di udara**, portal ke Bandara diterima server (skor & karakter tetap), **putus internet 30 dtk saat mengemudi → tersambung lagi, kendaraan dilepas aman, skor utuh**, podium | **17/17** |
+| `tests/e2e/living-city.mjs` (Mode Demo, Pixel 7 landscape): berjalan, NPC bergerak & berhenti di lampu merah, pedagang + misi, mobil/motor/sepeda naik-kemudi-turun, tidak menembus bangunan, jetpack naik → mendarat di atap 42 m → turun ke jalan, pesawat lepas landas (90 km/j) → terbang 50 m → mendarat → keluar, portal Alun-alun → Bandara, tidak teleport berulang, peta berpenanda, **beli barang + tolak uang kurang + tas + pakai makanan**, tanpa galat, tanpa menghubungi server | **16/16** |
+| `tests/e2e/two-players.mjs` (guru + 2 siswa, 3 browser, topologi Vercel↔backend): alur kelas lama + server menolak kendaraan/portal/jetpack dari jauh, **B melihat A mengendarai mobil**, kendaraan terparkir di posisi baru untuk semua, **B melihat jetpack A di udara**, portal ke Bandara diterima server (skor & karakter tetap), **membeli di kios Bandara lewat server (saldo berkurang, tas bertambah; server menolak pedagang jauh, barang yang tidak dijual, uang kurang; Dashboard menampilkan Uang · Tas)**, **putus internet 30 dtk saat mengemudi → tersambung lagi, kendaraan dilepas aman, skor & tas utuh**, podium | **18/18** |
 | `tests/security/abuse.mjs` | 20/20 |
 | Uji beban singkat 50 bot | 0 gagal, 0 koreksi, 0 putus |
 | FPS | SwiftShader (GPU perangkat lunak) 38–60 FPS di Mode Demo — **tidak mewakili HP**. Ukur di HP dengan `?debug=1`. |
@@ -120,7 +137,7 @@ apps/server/src/game/runtime.ts      validasi: naik/turun kendaraan (jarak, kunc
   Supabase (kata sandi DB tidak bisa diambil dari lingkungan pengembangan). Lihat `docs/DEPLOYMENT.md`.
 - Deploy preview Vercel bergantung pada integrasi Git Vercel yang sudah ada di proyek `eduverse-web-preview`
   (tidak ada akses Vercel langsung dari lingkungan ini).
-- Beli barang virtual: menunggu fitur inventaris.
+- Barang di tas belum bisa diberikan/ditukar ke teman, dan koleksi buku/alat tulis belum punya efek dalam permainan.
 - Mobil NPC tidak bertabrakan fisik dengan pejalan NPC (mereka mengerem untuk pemain, bukan untuk sesama NPC di trotoar).
 - Kendaraan NPC tidak berbelok di simpang secara acak — mengikuti lintasan tetap (sesuai permintaan: tidak acak menembus gedung).
 - Rute pejalan kaki taman memakai trotoar; pohon acak lama bisa sesekali tampak dilewati (kosmetik).
