@@ -60,10 +60,11 @@ export class Input {
       this.keys.delete(e.code);
       this.syncKeys();
     });
-    window.addEventListener('blur', () => {
-      this.keys.clear();
-      this.syncKeys();
-    });
+    // Kehilangan fokus / aplikasi ke latar / layar diputar: bersihkan semua status agar tidak ada tombol/joystick "tersangkut"
+    window.addEventListener('blur', () => this.reset());
+    document.addEventListener('visibilitychange', () => document.hidden && this.reset());
+    window.addEventListener('orientationchange', () => this.reset());
+    screen.orientation?.addEventListener?.('change', () => this.reset());
   }
 
   private syncKeys() {
@@ -92,8 +93,8 @@ export class Input {
         s.setPointerCapture(e.pointerId);
         return;
       }
-      // Sentuh: 40% kiri layar = joystick, sisanya = kamera
-      if (e.clientX < window.innerWidth * 0.4 && this.joyId === null) {
+      // Sentuh: 45% kiri layar = joystick (area bebas tombol), sisanya = kamera
+      if (e.clientX < window.innerWidth * 0.45 && this.joyId === null) {
         this.joyId = e.pointerId;
         this.joyStart = { x: e.clientX, y: e.clientY };
         this.joyBase.style.left = `${e.clientX}px`;
@@ -162,6 +163,8 @@ export class Input {
     };
     s.addEventListener('pointerup', end);
     s.addEventListener('pointercancel', end);
+    // Pointer capture hilang (modal muncul, elemen berganti, sistem membatalkan) → akhiri sentuhan itu
+    s.addEventListener('lostpointercapture', end);
     s.addEventListener(
       'wheel',
       (e) => {
@@ -181,12 +184,40 @@ export class Input {
     this.run = v || this.keys.has('ShiftLeft');
   }
 
+  /** Bersihkan SELURUH status masukan: tombol, joystick, sentuhan kamera, cubit, delta kamera/zoom. */
   reset() {
     this.moveX = 0;
     this.moveY = 0;
     this.jump = false;
     this.dive = false;
+    this.run = this.runToggle;
+    this.camYaw = 0;
+    this.camPitch = 0;
+    this.zoom = 0;
     this.keys.clear();
+    if (this.joyId !== null) {
+      try {
+        if (this.surface.hasPointerCapture(this.joyId)) this.surface.releasePointerCapture(this.joyId);
+      } catch {
+        /* pointer sudah tidak ada */
+      }
+    }
+    this.joyId = null;
+    this.camTouches.clear();
+    this.pinchDist = 0;
+    this.joyBase.classList.remove('active');
+    this.joyKnob.style.transform = 'translate(-50%, -50%)';
+  }
+
+  /** Aktifkan/nonaktifkan kontrol pemain. Selalu mereset status agar tidak ada sentuhan lama yang tersangkut. */
+  setEnabled(on: boolean) {
+    this.enabled = on;
+    this.reset();
+  }
+
+  /** Status ringkas untuk uji otomatis. */
+  debugState() {
+    return { enabled: this.enabled, joy: this.joyId !== null, camTouches: this.camTouches.size, moveX: this.moveX, moveY: this.moveY };
   }
 }
 

@@ -113,7 +113,7 @@ const questions = [
 let quizSeq = 0;
 function closeModal() {
   answering = false;
-  input.enabled = true;
+  input.setEnabled(true);
   input.reset();
   modal.style.display = 'none';
   modal.replaceChildren();
@@ -121,7 +121,7 @@ function closeModal() {
 function questionAt(id: string) {
   if (answering) return;
   answering = true;
-  input.enabled = false;
+  input.setEnabled(false);
   input.reset();
   const q = questions[quizSeq++ % questions.length]!;
   const card = document.createElement('div');
@@ -227,7 +227,7 @@ const demoHost: MobilityHost = {
   startMission(v) {
     const m = localMission(v);
     answering = true;
-    input.enabled = false;
+    input.setEnabled(false);
     input.reset();
     localMissionDialog(
       v,
@@ -243,7 +243,7 @@ const demoHost: MobilityHost = {
       },
       () => {
         answering = false;
-        input.enabled = true;
+        input.setEnabled(true);
       },
     );
   },
@@ -252,7 +252,7 @@ const demoHost: MobilityHost = {
   notify: (t, k) => notify(t, k ?? 'info'),
   setBusy: (b) => {
     answering = b;
-    input.enabled = !b;
+    input.setEnabled(!b);
     input.reset();
   },
 };

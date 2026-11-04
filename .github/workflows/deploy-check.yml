@@ -8,7 +8,7 @@ name: Uji Deployment Publik
 
 on:
   push:
-    branches: ['dev/**']
+    branches: ['dev/**', 'fix/**']
   workflow_dispatch:
     inputs:
       web_url:
@@ -62,4 +62,27 @@ jobs:
           path: |
             shots
             deploy-check.json
+          retention-days: 7
+
+  backend:
+    name: Ketahanan koneksi backend (Railway)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Tahan WebSocket 3 menit dari origin frontend & catat setiap putus
+        run: node tests/deploy/socket-soak.mjs
+        env:
+          BACKEND_URL: https://eduverse-aqilah-api-production.up.railway.app
+          ORIGINS: https://eduverse-web-preview.vercel.app,https://eduverse-web-preview-git-de-10d7d3-aqilahswimmingclubs-projects.vercel.app,https://eduverse-web-preview-git-fi-aqilahswimmingclubs-projects.vercel.app
+          DURATION: '180'
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: socket-soak
+          path: socket-soak.json
           retention-days: 7

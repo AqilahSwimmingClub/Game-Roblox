@@ -56,6 +56,17 @@ let waiting: WaitingRoom | null = null;
 let questionOpen = false;
 let riding = false;
 let busy = false;
+/**
+ * Kunci kontrol pemain per alasan (soal, dialog kendaraan, ganti avatar, pindah dunia).
+ * Kontrol aktif hanya bila TIDAK ada kunci; setiap pengunci melepas kuncinya sendiri (try/finally),
+ * sehingga satu jalur gagal/batal tidak bisa meninggalkan joystick terkunci.
+ */
+const inputLocks = new Set<string>();
+function lockInput(reason: string, on: boolean) {
+  if (on) inputLocks.add(reason);
+  else inputLocks.delete(reason);
+  input.setEnabled(inputLocks.size === 0);
+}
 let prompt: Prompt | MobilityPrompt | null = null;
 let mobility: Mobility | null = null;
 let ended = false;
@@ -136,6 +147,7 @@ async function goScene(scene: SceneId): Promise<boolean> {
   if (busy) return false;
   busy = true;
   riding = false;
+  lockInput('pindah', true);
   try {
     const r = await net.enter(scene);
     if (!r.ok) {
@@ -146,6 +158,7 @@ async function goScene(scene: SceneId): Promise<boolean> {
     if (!player) {
       player = new LocalPlayer(engine.scene, avatarCfg, label());
       mobility = new Mobility(engine.scene, input, cam, player, mobilityHost, input.touch);
+      hud.walletSlot.appendChild(mobility.walletBtn); // dompet/tas di baris info HUD (tidak menumpuk elemen lain)
       mobility.setCity(stage!.living, stage!.living ? stage!.collision : null);
     }
     if (r.vehicles && stage!.living) stage!.living.parked.setStates(r.vehicles);
@@ -160,9 +173,14 @@ async function goScene(scene: SceneId): Promise<boolean> {
     orbit = false;
     hud.setMode(scene === 'lobi' ? 'lobi' : scene === 'podium' ? 'none' : 'dunia');
     if (isWorldId(scene)) notify(WELCOME[scene], 'misi');
+    // adegan baru: dialog/kunci sisa adegan lama tidak boleh terbawa
+    mobility?.resetTransient();
+    lockInput('mobilitas', false);
+    if (!questionOpen) lockInput('soal', false);
     return true;
   } finally {
     busy = false;
+    lockInput('pindah', false);
   }
 }
 
@@ -273,21 +291,22 @@ const mobilityHost: MobilityHost = {
       };
     }),
   notify: (t, k) => notify(t, k ?? 'info'),
-  setBusy: (b) => {
-    input.enabled = !b;
-    input.reset();
-  },
+  setBusy: (b) => lockInput('mobilitas', b),
 };
 
 async function openQuestion(pointId: string) {
   if (!player) return;
   questionOpen = true;
-  input.enabled = false;
-  input.reset();
-  const r = await net.interact(pointId);
+  lockInput('soal', true);
+  let r: Awaited<ReturnType<typeof net.interact>>;
+  try {
+    r = await net.interact(pointId);
+  } catch {
+    r = { ok: false, error: 'Soal belum bisa dibuka. Coba lagi.' };
+  }
   if (!r.ok) {
     questionOpen = false;
-    input.enabled = true;
+    lockInput('soal', false);
     notify(r.error, 'peringatan');
     return;
   }
@@ -309,7 +328,7 @@ async function openQuestion(pointId: string) {
     (finished) => {
       if (!finished) net.closeQuestion();
       questionOpen = false;
-      input.enabled = true;
+      lockInput('soal', false);
     },
   );
 }
@@ -345,14 +364,17 @@ async function enterWorldFlow(w: WorldId) {
 }
 
 async function changeAvatar() {
-  input.enabled = false;
+  lockInput('avatar', true);
   hud.setMode('none');
-  avatarCfg = await pilihAvatar(avatarCfg, label(), async (cfg) => {
-    await net.setAvatar(cfg);
-  });
-  player?.setAvatar(avatarCfg);
-  hud.setMode(stage?.scene === 'lobi' ? 'lobi' : 'dunia');
-  input.enabled = true;
+  try {
+    avatarCfg = await pilihAvatar(avatarCfg, label(), async (cfg) => {
+      await net.setAvatar(cfg);
+    });
+    player?.setAvatar(avatarCfg);
+  } finally {
+    hud.setMode(stage?.scene === 'lobi' ? 'lobi' : 'dunia');
+    lockInput('avatar', false);
+  }
 }
 
 // ───────────────────────── event server ─────────────────────────
@@ -426,7 +448,7 @@ net.on<FinalResultMsg>(EV.ended, (r) => {
   riding = false;
   document.querySelectorAll('.soal').forEach((n) => n.closest('.screen')?.remove());
   questionOpen = false;
-  input.enabled = true;
+  lockInput('soal', false);
   showFinal(r, () => {});
 });
 net.on<{ top3: PodiumEntry[]; total: number }>(EV.podium, (m) => void runPodium(m.top3));
@@ -560,6 +582,7 @@ engine.onFrame((dt, t) => {
     }
   } else if (!(mobility && mobility.update(dt, t))) player.update(dt, input, cam, stage.collision);
   player.lowGravity = isWorldId(stage.scene) && WORLD_ENV[stage.scene].lowGravity;
+  hud.setCanDive(isWorldId(stage.scene) && (WORLD_ENV[stage.scene].oxygen || player.body.swimming));
   // Dunia Laut: oksigen berkurang saat kepala di bawah air (kecuali di kapal selam); habis → otomatis naik ke permukaan
   if (isWorldId(stage.scene) && WORLD_ENV[stage.scene].oxygen && !mobility?.driving) {
     const under = player.body.submerged >= 0.98;
@@ -654,6 +677,7 @@ if (debug) document.body.appendChild(debugEl);
 function exposeState() {
   (window as unknown as { __edu: unknown }).__edu = {
     scene: stage?.scene ?? null,
+    input: { ...input.debugState(), locks: [...inputLocks] },
     env: { lowGravity: !!player?.lowGravity, oxygen: round(oxygen), oxygenBar: hud.oxygenShown, swimming: !!player?.body.swimming, submerged: player ? round(player.body.submerged) : 0, sky: stage ? (engine.scene.background as THREE.Color | null)?.getHex() ?? null : null },
     pos: player ? { x: player.body.x, y: player.body.y, z: player.body.z } : null,
     remotes: remote.count(),

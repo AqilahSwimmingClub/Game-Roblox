@@ -1,7 +1,11 @@
 /**
- * HUD (dokumen bagian C): empat sudut + jalur tengah atas, panel putih 80%, teks navy.
- * Kiri atas: profil + poin + peringkat · Tengah atas: timer · Kanan atas: menu, papan skor, peta mini, progres
- * Kiri bawah: emote (+ area joystick) · Kanan bawah: Aksi (hanya saat dekat objek), Lompat, Lari, Selam.
+ * HUD responsif untuk game 3D mobile:
+ * - Bilah atas (grid, tanpa tumpang tindih): profil+poin · timer · Menu/Skor · peta mini; baris info ringkas
+ *   (peringkat → papan skor, dompet → tas, progres). Portrait: 2 baris; landscape/tablet/desktop: 1 baris lebar.
+ * - Kiri bawah dibiarkan KOSONG untuk joystick (lapisan HUD tidak menangkap sentuhan di luar tombolnya).
+ * - Kanan bawah: Aksi (hanya saat dekat objek), Lompat, Lari, Selam (hanya saat bisa menyelam), Emote kecil.
+ * Tinggi bilah atas & klaster kanan bawah diekspor sebagai --hud-top / --hud-br agar lapisan lain (notifikasi,
+ * telemetri kendaraan, oksigen) diletakkan di bawah/atasnya tanpa bertabrakan.
  */
 import { WORLDS, KOTA, worldZones, worldLayout, WORLD_ENV, type LeaderboardRow, type SessionPublicState, type WorldId } from '@eduverse/shared';
 import { h, btn, ui } from './dom.js';
@@ -30,8 +34,12 @@ export class Hud {
   private nameEl = h('div', { class: 'nama' });
   private initialEl = h('div', { class: 'foto' });
   private poinEl = h('span');
-  private rankEl = h('div', { class: 'panel tipis pill' }, 'Peringkat —');
-  private timerEl = h('div', { class: 'panel tipis timer' }, '--:--');
+  private rankEl = h('button', { type: 'button', class: 'panel tipis pill hud-chip', 'aria-label': 'Peringkat & papan skor', onclick: () => this.toggleLeaderboard() }, 'Peringkat —');
+  /** Tempat tombol dompet/tas (dipindahkan dari Mobility) di baris info. */
+  readonly walletSlot = h('div', { class: 'hud-wallet' });
+  private diveBtn!: HTMLButtonElement;
+  private canDive = false;
+  private timerEl = h('div', { class: 'panel tipis timer', role: 'timer' }, '--:--');
   private statusEl = h('div', { class: 'panel tipis pill', style: 'display:none' });
   private top3El = h('div', { class: 'panel tipis top3 desk-only' });
   private progressEl = h('div', { class: 'panel tipis progress' });
@@ -66,45 +74,63 @@ export class Hud {
       b.addEventListener('pointerleave', up);
       return b;
     };
-    const jumpBtn = hold('Lompat', 'biru bulat touch-only', cb.jump, 'width:80px;height:80px;font-size:16px');
-    const diveBtn = hold('Selam', 'putih bulat touch-only', cb.dive, 'width:64px;height:64px;font-size:14px');
-    const runBtn = btn('Lari', 'putih bulat touch-only', () => {
+    const jumpBtn = hold('Lompat', 'biru bulat touch-only hud-lompat', cb.jump);
+    this.diveBtn = hold('Selam', 'putih bulat touch-only hud-kecil', cb.dive);
+    const runBtn = btn('Lari', 'putih bulat touch-only hud-kecil', () => {
       this.runOn = !this.runOn;
       runBtn.classList.toggle('oranye', this.runOn);
       runBtn.classList.toggle('putih', !this.runOn);
+      runBtn.setAttribute('aria-pressed', String(this.runOn));
       cb.runToggle(this.runOn);
     });
-    runBtn.style.cssText = 'width:64px;height:64px;font-size:15px';
-    this.worldBtn = btn('PILIH DUNIA', 'oranye', () => cb.pilihDunia());
-    this.worldBtn.style.cssText = 'min-height:72px;font-size:22px';
-    this.miniWrap = h('div', { class: 'minimap', title: 'Ketuk untuk peta besar', onclick: () => this.openMap() }, this.minimap);
-    const lbBtn = btn('Skor', 'kuning kecil', () => this.toggleLeaderboard());
-    const menuBtn = btn('Menu', 'putih kecil', () => this.openMenu());
-    const emoteBtn = btn('Emote', 'ungu kecil', () => this.openEmotes());
-    const profil = h('div', { class: 'panel tipis profil' }, this.initialEl, h('div', null, this.nameEl, h('div', { class: 'poin' }, h('i', { class: 'star' }), this.poinEl)));
-    this.worldOnly = [this.timerEl, this.miniWrap, this.progressEl, this.top3El];
+    this.worldBtn = btn('PILIH DUNIA', 'oranye hud-dunia', () => cb.pilihDunia());
+    this.miniWrap = h('button', { type: 'button', class: 'minimap', title: 'Ketuk untuk peta besar', 'aria-label': 'Peta', onclick: () => this.openMap() }, this.minimap);
+    const lbBtn = btn('🏆', 'kuning hud-ikon', () => this.toggleLeaderboard(), { 'aria-label': 'Skor', title: 'Papan skor' });
+    const menuBtn = btn('☰', 'putih hud-ikon', () => this.openMenu(), { 'aria-label': 'Menu', title: 'Menu' });
+    const emoteBtn = btn('😀', 'ungu bulat hud-emote', () => this.openEmotes(), { 'aria-label': 'Emote', title: 'Emote' });
+    const profil = h('div', { class: 'panel tipis profil' }, this.initialEl, h('div', { class: 'profil-teks' }, this.nameEl, h('div', { class: 'poin' }, h('i', { class: 'star' }), this.poinEl)));
+    this.worldOnly = [this.timerEl, this.miniWrap, this.progressEl, this.top3El, emoteBtn];
     this.lobbyOnly = [this.worldBtn];
-    this.el = h(
+    const top = h(
       'div',
-      { class: 'hud', style: 'display:none' },
-      h('div', { class: 'tl' }, profil, this.rankEl, this.top3El),
-      h('div', { class: 'tc' }, this.timerEl, this.statusEl),
-      h('div', { class: 'tr' }, h('div', { class: 'col', style: 'gap:8px' }, menuBtn, lbBtn), h('div', { class: 'col', style: 'gap:8px;align-items:flex-end' }, this.miniWrap, this.progressEl)),
-      h('div', { class: 'joy-hint touch-only' }, 'Geser di sini untuk berjalan'),
-      h('div', { class: 'bl', style: 'bottom:calc(150px + var(--safe-b))' }, emoteBtn),
-      h('div', { class: 'br' }, h('div', { class: 'col', style: 'gap:10px;align-items:flex-end' }, this.worldBtn, this.actionBtn, diveBtn), h('div', { class: 'col', style: 'gap:10px;align-items:center' }, runBtn, jumpBtn)),
+      { class: 'hud-top' },
+      h('div', { class: 'hud-prof' }, profil),
+      h('div', { class: 'hud-timer' }, this.timerEl, this.statusEl),
+      h('div', { class: 'hud-right' }, h('div', { class: 'hud-btns' }, menuBtn, lbBtn), h('div', { class: 'hud-mini' }, this.miniWrap)),
+      h('div', { class: 'hud-chips' }, this.rankEl, this.walletSlot, this.progressEl, this.top3El),
     );
+    const br = h('div', { class: 'hud-br' }, this.worldBtn, this.actionBtn, h('div', { class: 'hud-br-row' }, emoteBtn, this.diveBtn, runBtn, jumpBtn));
+    this.el = h('div', { class: 'hud', style: 'display:none' }, top, h('div', { class: 'joy-hint touch-only' }, 'Geser di sini untuk berjalan'), br, this.oxyEl);
     ui.add(this.el);
-    this.el.appendChild(this.oxyEl);
-    if (matchMedia('(pointer: coarse)').matches) this.el.style.setProperty('--mm', '112px');
-    else this.el.style.setProperty('--mm', '168px');
+    this.setCanDive(false);
+    // Ekspor ukuran nyata bilah atas & klaster kanan bawah (berubah saat rotasi, zoom, bilah alamat, keyboard)
+    const root = document.documentElement.style;
+    const sync = () => {
+      if (this.el.style.display === 'none') return;
+      root.setProperty('--hud-top', `${Math.round(top.getBoundingClientRect().bottom)}px`);
+      root.setProperty('--hud-br', `${Math.round(window.innerHeight - br.getBoundingClientRect().top)}px`);
+    };
+    new ResizeObserver(sync).observe(top);
+    new ResizeObserver(sync).observe(br);
+    window.addEventListener('resize', sync);
+    this.syncLayout = sync;
+  }
+
+  private syncLayout: () => void = () => undefined;
+
+  /** Tombol Selam hanya ditampilkan bila bisa menyelam (Dunia Laut / sedang berenang). */
+  setCanDive(on: boolean) {
+    if (on === this.canDive && this.diveBtn.dataset.init) return;
+    this.canDive = on;
+    this.diveBtn.dataset.init = '1';
+    this.diveBtn.classList.toggle('hud-sembunyi', !on);
   }
 
   /** Meteran oksigen Dunia Laut (null = sembunyikan). */
   private oxyBar = h('div', { style: 'height:100%;width:100%;border-radius:8px;background:#1FB6D9;transition:width .2s' });
   private oxyEl = h(
     'div',
-    { class: 'oksigen', style: 'display:none;position:absolute;left:50%;top:64px;transform:translateX(-50%);width:min(260px,60vw);background:#fff;border:3px solid #1E2A4A;border-radius:12px;padding:3px;z-index:5;pointer-events:none' },
+    { class: 'oksigen', style: 'display:none;position:absolute;left:50%;top:calc(var(--hud-top, 64px) + 6px);transform:translateX(-50%);width:min(260px,60vw);background:#fff;border:3px solid #1E2A4A;border-radius:12px;padding:3px;z-index:5;pointer-events:none' },
     h('div', { style: 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:800 13px Nunito,sans-serif;color:#1E2A4A' }, 'OKSIGEN'),
     h('div', { style: 'height:16px' }, this.oxyBar),
   );
@@ -125,6 +151,8 @@ export class Hud {
     for (const e of this.worldOnly) e.style.display = mode === 'dunia' ? '' : 'none';
     for (const e of this.lobbyOnly) e.style.display = mode === 'lobi' ? '' : 'none';
     if (mode !== 'dunia') this.top3El.style.display = 'none';
+    this.el.dataset.mode = mode;
+    requestAnimationFrame(() => this.syncLayout());
   }
 
   setProfile(nama: string, absen: number) {
@@ -254,7 +282,7 @@ export class Hud {
       this.lbPanel = null;
       return;
     }
-    this.lbPanel = h('div', { class: 'panel', style: 'position:fixed;right:max(14px,var(--safe-r));top:50%;transform:translateY(-50%);width:min(360px,90vw);max-height:80vh;padding:14px;display:flex;flex-direction:column;gap:8px;z-index:15' });
+    this.lbPanel = h('div', { class: 'panel papan-skor' });
     ui.add(this.lbPanel);
     this.renderLeaderboard();
   }
@@ -304,7 +332,7 @@ export class Hud {
         'button',
         {
           class: `opt${this.cb.currentQuality() === q ? ' pilih' : ''}`,
-          style: 'min-height:52px;font-size:16px',
+          'data-q': q,
           onclick: () => {
             this.cb.quality(q);
             close();
@@ -330,11 +358,11 @@ export class Hud {
     layer.appendChild(
       h(
         'div',
-        { class: 'panel card col pop', style: 'width:min(420px,100%)' },
+        { class: 'panel card col pop dialog-hud', style: 'width:min(440px,100%)' },
         h('h2', null, 'Menu'),
         btn('Lanjut Bermain', 'hijau lebar', close),
         h('div', { style: 'font-weight:900' }, 'Kualitas grafis'),
-        h('div', { class: 'grid', style: 'grid-template-columns:repeat(4,1fr)' }, ...qBtns),
+        h('div', { class: 'grid-kualitas' }, ...qBtns),
         soundBtn,
         this.mode === 'lobi' ? btn('Ganti Avatar', 'ungu lebar', () => (close(), this.cb.avatar())) : null,
         btn('Tidak bisa bergerak? Pulihkan', 'putih lebar', () => (close(), this.cb.recover())),
