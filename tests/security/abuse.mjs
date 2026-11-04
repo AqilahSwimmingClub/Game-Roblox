@@ -265,10 +265,11 @@ try {
         await p.locator('.char-card[data-karakter="19"]').click();
         await p.getByRole('button', { name: 'SIAP!' }).click();
         await p.waitForFunction(() => window.__edu?.scene === 'kota', null, { timeout: 30000 });
-        // Chromium tidak memutus WebSocket yang sudah terbuka saat offline; putusnya terdeteksi lewat ping (≤ 25 dtk)
+        // Chromium tidak memutus WebSocket yang sudah terbuka saat offline; putusnya terdeteksi lewat heartbeat
+        // (interval 20 + batas 25 dtk = ≤ 45 dtk; jeda jaringan HP yang lebih singkat sengaja TIDAK memutus permainan)
         await ctx.setOffline(true);
         const t0 = Date.now();
-        await p.getByText('Koneksi terputus').waitFor({ timeout: 45000 });
+        await p.getByText('Koneksi terputus').waitFor({ timeout: 70000 });
         detectS = Math.round((Date.now() - t0) / 1000);
         await sleep(6000);
         await ctx.setOffline(false);

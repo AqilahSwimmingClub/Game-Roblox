@@ -6,7 +6,8 @@
  */
 import fs from 'node:fs';
 
-const DEFAULT_SERVER = 'https://eduverse-aqilah-api.onrender.com';
+// Backend online yang dipakai sekarang (Railway). Bisa ditimpa variabel EDUVERSE_SERVER_URL di Vercel.
+const DEFAULT_SERVER = 'https://eduverse-aqilah-api-production.up.railway.app';
 const raw = (process.env.EDUVERSE_SERVER_URL ?? DEFAULT_SERVER).trim().replace(/\/+$/, '');
 if (raw && !/^https?:\/\/[a-z0-9.-]+(:\d+)?$/i.test(raw)) {
   console.error(`EDUVERSE_SERVER_URL tidak valid: "${raw}" (contoh: https://eduverse-aqilah-api.onrender.com)`);

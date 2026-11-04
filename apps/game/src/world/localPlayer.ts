@@ -37,7 +37,7 @@ export class LocalPlayer {
       mat.dispose();
       this.label.removeFromParent();
     }
-    this.label = makeLabelSprite(this.name, { border: '#FFC93C' });
+    this.label = makeLabelSprite(this.name, { border: '#FFC93C', scale: 0.0065 });
     this.label.position.y = 2.55;
     this.avatar.root.add(this.label);
   }

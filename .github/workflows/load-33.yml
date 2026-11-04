@@ -1,0 +1,195 @@
+# Uji beban kesiapan kelas EDUVERSE: 33 siswa simulasi, satu sesi, aktif 40 menit,
+# melawan backend Railway yang BENAR-BENAR dipakai siswa (lewat internet, bukan localhost).
+#
+# Hanya dijalankan MANUAL (workflow_dispatch). Tidak pernah otomatis pada setiap commit:
+# satu kali uji memakai ~40 menit koneksi aktif ke hosting gratis.
+#
+# Kredensial guru uji diambil dari GitHub Actions Secrets (LOADTEST_TEACHER_EMAIL,
+# LOADTEST_TEACHER_PASSWORD). Tidak ada kata sandi yang ditulis di workflow maupun log.
+#
+# Hasil: ringkasan di Job Summary + artefak (JSON per-menit, log penuh) yang tetap bisa
+# diperiksa walaupun sesi yang memicunya terputus.
+name: Uji Beban 33 Siswa (manual)
+
+on:
+  # GitHub hanya mengizinkan workflow_dispatch untuk workflow yang sudah "terdaftar".
+  # Workflow yang belum pernah berjalan dan belum ada di branch bawaan tidak bisa dipicu manual.
+  # Satu push ke branch pendaftaran di bawah ini mendaftarkannya (dan hanya menjalankan job
+  # verifikasi backend, bukan uji beban 40 menit). Uji beban tetap manual saja.
+  push:
+    branches: ['ci/daftar-uji-beban-33']
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: 'Backend yang diuji (Railway produksi)'
+        default: 'https://eduverse-aqilah-api-production.up.railway.app'
+      players:
+        description: 'Jumlah siswa simulasi'
+        default: '33'
+      duration_minutes:
+        description: 'Durasi simulasi aktif (menit)'
+        default: '40'
+      session_minutes:
+        description: 'Durasi sesi kelas uji (menit, harus > durasi simulasi + 3)'
+        default: '45'
+      class_name:
+        description: 'Nama kelas uji'
+        default: 'EDUVERSE-LOADTEST-33'
+      expect_commit:
+        description: 'SHA pendek backend yang harus berjalan (kosong = lewati pemeriksaan)'
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: loadtest-kelas
+  cancel-in-progress: false
+
+jobs:
+  # Job 1 — tidak memerlukan secret apa pun, jadi selalu memberi bukti kondisi backend
+  # (hidup, commit yang berjalan, heartbeat 20000/25000) walaupun kredensial uji belum diisi.
+  verifikasi:
+    name: Verifikasi backend yang berjalan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BASE_URL: ${{ inputs.backend_url || 'https://eduverse-aqilah-api-production.up.railway.app' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Health, commit, dan heartbeat yang SEDANG berjalan
+        run: |
+          H=$(curl -sS --max-time 30 "$BASE_URL/api/health")
+          echo "$H" | tee health-sebelum.json; echo
+          echo "$H" | grep -q '"ok":true' || { echo "::error::Health endpoint $BASE_URL/api/health tidak sehat."; exit 1; }
+          HS=$(curl -sS --max-time 30 "$BASE_URL/socket.io/?EIO=4&transport=polling" | tr -d '\0')
+          echo "$HS" | tee handshake-sebelum.txt; echo
+          COMMIT=$(node -e 'const h=JSON.parse(process.argv[1]);console.log(h.build?.commit??"")' "$H")
+          echo "Backend commit: ${COMMIT:-(tidak dilaporkan)}"
+          echo "$HS" | grep -q '"pingInterval":20000' || echo "::warning::heartbeat bukan 20000 — backend kemungkinan belum memakai kode PR #4."
+          WANT='${{ inputs.expect_commit }}'
+          if [ -n "$WANT" ] && [ "$COMMIT" != "$WANT" ]; then
+            echo "::error::Backend menjalankan commit '${COMMIT}', bukan '${WANT}'. Deploy dulu backend yang benar sebelum uji beban."
+            exit 1
+          fi
+          {
+            echo "## Backend sebelum uji"
+            echo '```json'; echo "$H"; echo '```'
+            echo '```'; echo "$HS"; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loadtest-backend-verifikasi
+          path: |
+            health-sebelum.json
+            handshake-sebelum.txt
+          retention-days: 30
+
+  beban:
+    name: 33 siswa · ${{ inputs.duration_minutes }} menit · backend nyata
+    needs: verifikasi
+    # Uji beban 40 menit HANYA berjalan ketika dipicu manual — tidak pada push mana pun.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      BASE_URL: ${{ inputs.backend_url }}
+      TEACHER_EMAIL: ${{ secrets.LOADTEST_TEACHER_EMAIL }}
+      TEACHER_PASSWORD: ${{ secrets.LOADTEST_TEACHER_PASSWORD }}
+      OUT: loadtest-kelas.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Kredensial guru uji tersedia?
+        run: |
+          MISSING=
+          [ -n "$TEACHER_EMAIL" ] || MISSING="$MISSING LOADTEST_TEACHER_EMAIL"
+          [ -n "$TEACHER_PASSWORD" ] || MISSING="$MISSING LOADTEST_TEACHER_PASSWORD"
+          if [ -n "$MISSING" ]; then
+            echo "::error::Secret belum diisi:$MISSING — tambahkan di Settings → Secrets and variables → Actions (Repository secrets). Nilainya tidak pernah ditampilkan di log."
+            exit 1
+          fi
+          echo "Kedua secret kredensial guru uji terisi (nilai tidak ditampilkan)."
+
+      - run: npm ci --no-audit --no-fund
+      - name: Bangun paket bersama (dipakai bot untuk layout dunia yang sama dengan server)
+        run: npm run build -w @eduverse/shared
+
+      - name: Soal contoh untuk GURU UJI bila banknya kosong (tidak menyentuh Bank Soal guru lain)
+        run: |
+          node -e '
+            const BASE = process.env.BASE_URL.replace(/\/$/, "");
+            const call = async (path, body, method) => {
+              const r = await fetch(BASE + "/api" + path, {
+                method: method ?? (body ? "POST" : "GET"),
+                headers: { "content-type": "application/json", ...(globalThis.__t ? { authorization: "Bearer " + globalThis.__t } : {}) },
+                body: body ? JSON.stringify(body) : undefined,
+              });
+              return { ok: r.ok, status: r.status, data: await r.json().catch(() => null) };
+            };
+            const login = await call("/auth/login", { email: process.env.TEACHER_EMAIL, password: process.env.TEACHER_PASSWORD });
+            if (!login.ok) { console.error("::error::Login guru uji gagal (" + login.status + "). Periksa nilai secret LOADTEST_TEACHER_EMAIL/LOADTEST_TEACHER_PASSWORD."); process.exit(1); }
+            globalThis.__t = login.data.token;
+            const st = (await call("/questions/stats")).data ?? {};
+            console.log("Bank soal guru uji: total " + (st.total ?? 0) + " (bawaan " + (st.bySource?.bawaan ?? 0) + ", guru " + (st.bySource?.guru ?? 0) + ")");
+            if (!(st.bySource?.bawaan > 0)) {
+              const r = await call("/questions/sample", {});
+              console.log("Soal contoh (sumber bawaan) dimuat untuk guru uji: " + (r.ok ? "berhasil" : "GAGAL " + r.status));
+              if (!r.ok) process.exit(1);
+            }
+          '
+
+      - name: Uji beban kelas (33 siswa, aktif ${{ inputs.duration_minutes }} menit)
+        id: beban
+        run: |
+          set -o pipefail
+          node tests/load/bots.mjs \
+            --mode kelas \
+            --players '${{ inputs.players }}' \
+            --duration "$(( ${{ inputs.duration_minutes }} * 60 ))" \
+            --session-minutes '${{ inputs.session_minutes }}' \
+            --class '${{ inputs.class_name }}' \
+            2>&1 | tee loadtest-kelas.log
+
+      - name: Ringkasan ke Job Summary
+        if: always()
+        run: |
+          {
+            echo "## Hasil uji beban ${{ inputs.players }} siswa · ${{ inputs.duration_minutes }} menit"
+            if [ -f "$OUT" ]; then
+              node -e '
+                const r = require("./" + process.env.OUT);
+                const t = (rows, head) => { console.log("| " + head.join(" | ") + " |"); console.log("|" + head.map(() => "---").join("|") + "|"); for (const row of rows) console.log("| " + row.join(" | ") + " |"); };
+                console.log("**" + (r.lulus ? "LULUS" : "GAGAL") + "** — durasi aktif " + r.durasiAktifMenit + " menit · sesi `" + r.sesi.code + "` · backend commit `" + (r.backend?.commit ?? "-") + "`");
+                console.log("");
+                console.log("### Gerbang wajib");
+                t(r.gerbang.map((g) => [g.nama, g.ok ? "LULUS" : "**GAGAL**", g.detail]), ["Pemeriksaan", "Hasil", "Detail"]);
+                console.log("");
+                console.log("### Ringkasan per 5 menit");
+                t(r.snapshots.map((s) => [s.menit, s.online, s.siap, s.scenes.kota ?? 0, s.scenes.hutan ?? 0, s.scenes.laut ?? 0, s.scenes.angkasa ?? 0, s.jawabanTerkirim, s.latensiJawabMs.p95 ?? "-", s.healthMs.p95 ?? "-", s.putusTidakTerduga]), ["Menit", "Online", "Siap", "Kota", "Hutan", "Laut", "Angkasa", "Jawaban", "Jawab p95 ms", "Health p95 ms", "Putus"]);
+                console.log("");
+                console.log("Jawaban tersimpan di database: **" + r.hasilSesi.answerCount + "** · per dunia `" + JSON.stringify(r.hasilSesi.perWorld) + "`");
+                console.log("");
+                console.log("CPU/RAM Railway: " + (r.sumberDayaRailway.tersedia ? "tersedia" : "**tidak tersedia dari runner** — " + r.sumberDayaRailway.catatan));
+              '
+            else
+              echo "File hasil \`$OUT\` tidak terbentuk — uji berhenti sebelum selesai. Lihat artefak \`loadtest-kelas\` dan log langkah di atas."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: loadtest-kelas
+          path: |
+            loadtest-kelas.json
+            loadtest-kelas.log
+          retention-days: 30

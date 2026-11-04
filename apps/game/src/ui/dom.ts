@@ -81,9 +81,16 @@ function next() {
   sfx.notify();
   const el = h('div', { class: 'panel tipis notify', role: 'status' }, h('i', { style: `background:${KIND_COLOR[it.kind] ?? '#3BA7FF'}` }), h('span', null, it.text));
   wrap.appendChild(el);
-  setTimeout(() => {
+  // durasi sesuai panjang teks (2,2–4 dtk) + bisa diketuk untuk menutup; pesan antre dipercepat
+  const ms = Math.min(4000, Math.max(2200, it.text.length * 45)) * (queue.length ? 0.7 : 1);
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
     el.remove();
     showing = false;
     next();
-  }, 3200);
+  };
+  el.addEventListener('pointerdown', finish);
+  setTimeout(finish, ms);
 }

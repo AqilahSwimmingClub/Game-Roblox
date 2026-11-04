@@ -1,0 +1,114 @@
+# Deploy backend EDUVERSE ke Railway secara TERKONTROL (hanya dijalankan manual oleh pemilik repo).
+#
+# - Hanya commit yang CI-nya HIJAU (Typecheck · Test · Build + E2E) yang boleh dideploy.
+# - Tidak menyentuh database: DATABASE_URL (Supabase) & variabel lain tetap seperti di Railway; data pengguna aman.
+# - Mencatat versi yang berjalan SEBELUM deploy, lalu memverifikasi versi baru (commit + heartbeat 20000/25000).
+# - Rollback: Railway → service → Deployments → deployment sebelumnya → "Redeploy",
+#   atau jalankan workflow ini lagi dengan "ref" = commit sebelumnya yang lulus CI.
+#
+# Prasyarat sekali saja (pemilik akun Railway): Railway → Project → Settings → Tokens → buat Project Token untuk
+# environment production → GitHub repo → Settings → Secrets and variables → Actions → New secret: RAILWAY_TOKEN.
+name: Deploy Backend Railway (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Commit/branch yang sudah lulus CI'
+        default: 'fix/eduverse-responsive-movement'
+      service:
+        description: 'Nama service Railway'
+        default: 'eduverse-aqilah-api'
+      backend_url:
+        description: 'Alamat publik backend'
+        default: 'https://eduverse-aqilah-api-production.up.railway.app'
+
+permissions:
+  contents: read
+  checks: read
+
+concurrency:
+  group: deploy-railway
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy & verifikasi backend Railway
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      BACKEND: ${{ inputs.backend_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Token Railway tersedia?
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::error::Secret RAILWAY_TOKEN belum diisi. Buat Project Token di Railway lalu simpan sebagai secret repo RAILWAY_TOKEN."
+            exit 1
+          fi
+
+      - name: Pastikan CI commit ini hijau
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA=$(git rev-parse HEAD)
+          echo "SHA=$SHA" >> "$GITHUB_ENV"
+          curl -sf -H "Authorization: Bearer $GH_TOKEN" "https://api.github.com/repos/${{ github.repository }}/commits/$SHA/check-runs?per_page=100" > checks.json
+          node -e '
+            const runs = require("./checks.json").check_runs;
+            const need = ["Typecheck · Test · Build", "E2E"];
+            const bad = need.filter((n) => !runs.some((r) => r.name.startsWith(n) && r.conclusion === "success"));
+            if (bad.length) { console.error("CI belum hijau untuk: " + bad.join(", ")); process.exit(1); }
+            console.log("CI hijau: " + runs.filter((r) => r.conclusion === "success").map((r) => r.name).join(" | "));
+          '
+
+      - name: Catat versi yang berjalan sebelum deploy (untuk rollback)
+        run: |
+          curl -s "$BACKEND/api/health" | tee before-health.json; echo
+          curl -s "$BACKEND/socket.io/?EIO=4&transport=polling" | tee before-handshake.txt; echo
+          echo "## Sebelum deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"; cat before-health.json before-handshake.txt >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Bangun & unggah ke Railway (Dockerfile repo)
+        run: |
+          echo "$SHA" > apps/server/BUILD_COMMIT
+          npx -y @railway/cli@4 up --service "${{ inputs.service }}" --ci
+
+      - name: Verifikasi versi baru berjalan (commit + heartbeat)
+        run: |
+          WANT=${SHA:0:7}
+          for i in $(seq 1 60); do
+            H=$(curl -s "$BACKEND/api/health" || true)
+            if echo "$H" | grep -q "\"commit\":\"$WANT\""; then
+              HS=$(curl -s "$BACKEND/socket.io/?EIO=4&transport=polling")
+              echo "$H"; echo "$HS"
+              echo "$HS" | grep -q '"pingInterval":20000' || { echo "::error::heartbeat bukan 20000"; exit 1; }
+              echo "## Sesudah deploy: commit $WANT berjalan, heartbeat 20000/25000" >> "$GITHUB_STEP_SUMMARY"
+              echo '```' >> "$GITHUB_STEP_SUMMARY"; echo "$H" >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Versi $WANT tidak terlihat di $BACKEND/api/health dalam 10 menit. Periksa log Railway; rollback lewat Redeploy deployment sebelumnya."
+          exit 1
+
+      - name: Uji ketahanan koneksi singkat setelah deploy
+        run: npm ci --no-audit --no-fund && node tests/deploy/socket-soak.mjs
+        env:
+          BACKEND_URL: ${{ inputs.backend_url }}
+          ORIGINS: https://eduverse-web-preview.vercel.app,https://eduverse-web-preview-git-fi-ffa278-aqilahswimmingclubs-projects.vercel.app
+          DURATION: '60'
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-railway
+          path: |
+            before-health.json
+            before-handshake.txt
+            socket-soak.json
+          retention-days: 30

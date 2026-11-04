@@ -64,6 +64,8 @@ import {
   type AnswerResultMsg,
   type FinalResultMsg,
   type PodiumEntry,
+  type PodiumShowMsg,
+  PODIUM_LEAD_MS,
   type SpawnMarker,
 } from '@eduverse/shared';
 import { query, tx } from '../db/pool.js';
@@ -214,6 +216,8 @@ export class SessionRuntime {
   endsAt: number | null;
   pausedRemainingMs: number | null;
   podiumShown: boolean;
+  /** Waktu (ms server) guru menekan Tampilkan Podium — menjadi id & jam mulai acara yang sama di semua perangkat. */
+  podiumAt: number | null = null;
   students = new Map<number, Student>();
   players = new Map<string, Player>(); // socket.id → Player
   worlds = new Map<WorldId, WorldPoints>();
@@ -240,6 +244,7 @@ export class SessionRuntime {
     this.endsAt = row.ends_at ? row.ends_at.getTime() : null;
     this.pausedRemainingMs = row.paused_remaining_ms;
     this.podiumShown = !!row.podium_at;
+    this.podiumAt = row.podium_at ? row.podium_at.getTime() : null;
     for (const r of roster) this.students.set(r.absen, this.studentFromRow(r));
   }
 
@@ -1538,11 +1543,21 @@ export class SessionRuntime {
     return ranked.slice(0, 3).map((r) => ({ rank: r.rank, nama: r.nama, absen: r.absen, poin: r.poin, avatar: r.s.avatar }));
   }
 
+  /**
+   * Acara podium yang sedang/telah berlangsung. Semua perangkat memutar linimasa yang sama berdasarkan startAt
+   * (jam server), jadi juara & urutannya identik dan siswa yang tersambung ulang melanjutkan — tidak mengulang.
+   */
+  podiumPayload(): PodiumShowMsg | null {
+    if (!this.podiumShown || this.status !== 'selesai' || !this.podiumAt) return null;
+    return { id: this.podiumAt, startAt: this.podiumAt + PODIUM_LEAD_MS, top3: this.top3(), total: this.ranking().length };
+  }
+
   async showPodium(): Promise<string | null> {
     if (this.status !== 'selesai') return 'Akhiri permainan terlebih dahulu.';
     this.podiumShown = true;
-    await query('UPDATE sessions SET podium_at = now() WHERE id = $1', [this.id]);
-    const payload = { top3: this.top3(), total: this.ranking().length };
+    this.podiumAt = Date.now();
+    await query('UPDATE sessions SET podium_at = to_timestamp($2 / 1000.0) WHERE id = $1', [this.id, this.podiumAt]);
+    const payload = this.podiumPayload()!;
     this.play.to(this.room).emit(EV.podium, payload);
     this.teacher.to(this.teacherRoom).emit(EV.podium, payload);
     return null;

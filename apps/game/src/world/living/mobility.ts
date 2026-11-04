@@ -16,7 +16,7 @@ import type { LocalPlayer } from '../localPlayer.js';
 import type { LivingCity } from './index.js';
 import { buildVehicle, buildJetpack, disposeModel, type VehicleModel } from './meshes.js';
 import { newBody, stepGround, stepPlane, stepWater, exitSpot, poseModel, vehicleActionLabel, type VehicleBody, type DriveInput } from './vehicles.js';
-import { vendorDialog, worldGateDialog, riftTransition, dialogOpen, type GateWorld } from './missions.js';
+import { vendorDialog, worldGateDialog, riftTransition, dialogOpen, closeDialog, type GateWorld } from './missions.js';
 import { engineSound, sfxLiving } from '../audio.js';
 import { h } from '../../ui/dom.js';
 import { formatRp } from '@eduverse/shared';
@@ -116,7 +116,7 @@ export class Mobility {
   private recoverBtn: HTMLButtonElement;
   private actionBtn: HTMLButtonElement;
   private hintEl: HTMLElement;
-  private walletBtn: HTMLButtonElement;
+  readonly walletBtn: HTMLButtonElement;
   private currentPrompt: MobilityPrompt | null = null;
   /** Statistik untuk uji otomatis. */
   stats = { maxAltitude: 0, maxSpeed: 0, rifts: 0, landedOnRoof: false, takeoffs: 0, landings: 0, itemsUsed: 0 };
@@ -132,6 +132,7 @@ export class Mobility {
     this.teleEl = h('div', { class: 'mv-tele panel tipis' });
     this.hintEl = h('div', { class: 'mv-hint panel tipis desk-only' });
     this.actionBtn = tapBtn('Aksi', 'kuning', () => void this.act());
+    this.actionBtn.style.display = 'none'; // hanya tampil saat berkendara/jetpack & dekat objek (sebelumnya terlihat sejak awal & menutupi Lompat)
     this.recoverBtn = tapBtn('Pulihkan', 'putih', () => this.recover());
     this.recoverBtn.style.display = 'none';
     const exit = () => tapBtn('TURUN', 'merah', () => void this.exitVehicle());
@@ -567,6 +568,13 @@ export class Mobility {
       this.busy = false;
       this.host.setBusy(false);
     });
+  }
+
+  /** Setelah pindah adegan: tutup dialog sisa adegan lama & lepaskan status sibuk agar kontrol langsung bisa dipakai. */
+  resetTransient() {
+    if (dialogOpen()) closeDialog();
+    this.busy = false;
+    this.ctl = { gas: false, brake: false, up: false, down: false };
   }
 
   /** Ekstra untuk paket posisi (visual pesawat di perangkat lain). */

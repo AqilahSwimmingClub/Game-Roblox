@@ -1,5 +1,5 @@
 /** Layar 9–13: Pop-up Soal, Hasil Jawaban, Hasil Akhir, Podium, hitung mundur, peta besar. */
-import { KOTA, KOTA_WORLD_HALF, worldZones, worldLayout, WORLD_ENV, type WorldId, type AnswerPayload, type AnswerResultMsg, type FinalResultMsg, type PodiumEntry, type PublicQuestion } from '@eduverse/shared';
+import { KOTA, KOTA_WORLD_HALF, worldZones, worldLayout, WORLD_ENV, type WorldId, type AnswerPayload, type AnswerResultMsg, type FinalResultMsg, type PublicQuestion } from '@eduverse/shared';
 import { h, btn, ui } from './dom.js';
 import { sfx } from '../world/audio.js';
 import { drawLandmarks, LANDMARK_LEGEND } from '../world/living/landmarks.js';
@@ -169,38 +169,6 @@ export function showFinal(r: FinalResultMsg, onPodium: () => void) {
     );
   }, 1800);
   return { close: () => layer.remove() };
-}
-
-/** Banner podium: urutan 3 → 2 → 1 dengan tabuhan drum, lalu musik kemenangan. */
-export function podiumBanner(top3: PodiumEntry[], onReveal: (rank: number) => void, onFinish: () => void) {
-  const text = h('h2', { style: 'font-size:clamp(20px,4vw,30px)' }, 'Dan juaranya adalah…');
-  const el = h('div', { class: 'panel banner-bawah pop', style: 'z-index:24' }, text);
-  ui.add(el);
-  sfx.drum();
-  let step = 0;
-  const order = [3, 2, 1];
-  const timer = setInterval(() => {
-    const rank = order[step];
-    if (rank === undefined) {
-      clearInterval(timer);
-      text.textContent = 'Selamat untuk semua penjelajah!';
-      sfx.victory();
-      onFinish();
-      return;
-    }
-    const e = top3.find((t) => t.rank === rank);
-    if (e) {
-      text.textContent = `Juara ${rank}: ${e.nama} · ${e.poin} poin`;
-      onReveal(rank);
-    }
-    step++;
-  }, 2000);
-  return {
-    close: () => {
-      clearInterval(timer);
-      el.remove();
-    },
-  };
 }
 
 export function countdown(n: number) {

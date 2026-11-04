@@ -136,7 +136,7 @@ export class RemotePlayers {
 
   private add(id: string, nama: string, absen: number, cfg: AvatarConfig, x: number, y: number, z: number): Remote {
     const avatar = new AvatarMesh(cfg);
-    const label = makeLabelSprite(`${nama} · ${String(absen).padStart(2, '0')}`, { border: '#3BA7FF' });
+    const label = makeLabelSprite(`${nama} · ${String(absen).padStart(2, '0')}`, { border: '#3BA7FF', scale: 0.0065 });
     label.position.y = 2.55;
     avatar.root.add(label);
     const holder = new THREE.Group();
@@ -222,6 +222,11 @@ export class RemotePlayers {
       .map((p) => ({ id: p.id, nama: p.nama, absen: p.absen, d: Math.hypot(p.pos.x - x, p.pos.z - z) }))
       .filter((p) => p.d <= r)
       .sort((a, b) => a.d - b.d);
+  }
+
+  /** Posisi pemain lain beserta nama (uji otomatis: gerakan terlihat di perangkat lain). */
+  named(): { nama: string; x: number; z: number }[] {
+    return [...this.map.values()].map((r) => ({ nama: r.nama, x: Math.round(r.pos.x * 10) / 10, z: Math.round(r.pos.z * 10) / 10 }));
   }
 
   positions(): { x: number; z: number }[] {

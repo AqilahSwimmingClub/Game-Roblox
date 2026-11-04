@@ -197,15 +197,20 @@ try {
     console.log('    saat gas:', JSON.stringify((await edu()).mobility.vehicle));
     await page.waitForTimeout(2000);
     await page.evaluate(() => window.__eduDebug.control({ gas: false, brake: true }));
-    await page.waitForTimeout(800);
+    // rem sampai perahu benar-benar pelan (permainan menolak turun bila > 6 m/dtk: "Pelankan kendaraan dulu")
+    await page.waitForFunction(() => Math.abs(window.__edu.mobility?.vehicle?.speed ?? 0) < 1, null, { timeout: 8000 });
     await shot(page, 'w4-perahu');
     const p1 = (await edu()).pos;
     const d = Math.hypot(p1.x - p0.x, p1.z - p0.z);
     if (d < 6) throw new Error(`perahu hanya bergerak ${d.toFixed(1)} m · ${JSON.stringify((await edu()).mobility)}`);
     if (Math.abs(p1.y) > 0.3) throw new Error(`perahu tidak di permukaan air (y=${p1.y})`);
     await page.evaluate(() => window.__eduDebug.control({ brake: false }));
-    await page.evaluate(() => window.__eduDebug.exitVehicle()); // turun di laut → tercebur & berenang
-    await page.waitForFunction(() => window.__edu.mobility?.mode === 'jalan', null, { timeout: 10000 });
+    const exitRes = await page.evaluate(() => window.__eduDebug.exitVehicle()); // turun di laut → tercebur & berenang
+    await page.waitForFunction(() => window.__edu.mobility?.mode === 'jalan', null, { timeout: 10000 }).catch(async () => {
+      const e = await edu();
+      const notes = await page.locator('.notify').allTextContents().catch(() => []);
+      throw new Error(`tidak turun dari perahu: act=${JSON.stringify(exitRes)} · ${JSON.stringify({ m: e.mobility?.mode, v: e.mobility?.vehicle, input: e.input })} · notif ${JSON.stringify(notes)}`);
+    });
     return `berlayar ${d.toFixed(0)} m di permukaan`;
   });
 

@@ -14,6 +14,7 @@ import { showMap } from './ui/play.js';
 import { Engine } from './engine/engine.js';
 import { Input } from './engine/input.js';
 import { FollowCamera } from './engine/camera.js';
+import { music } from './world/audio.js';
 import { Stage, type Prompt } from './world/stage.js';
 import { LocalPlayer } from './world/localPlayer.js';
 
@@ -89,10 +90,10 @@ modal.className = 'demo-modal';
 document.body.appendChild(modal);
 
 for (const ev of ['pointerdown', 'touchstart']) {
-  jumpBtn.addEventListener(ev, (e) => { e.preventDefault(); input.jump = true; });
+  jumpBtn.addEventListener(ev, (e) => { e.preventDefault(); input.pressJump(true); });
 }
 for (const ev of ['pointerup', 'pointercancel', 'touchend', 'touchcancel']) {
-  jumpBtn.addEventListener(ev, (e) => { e.preventDefault(); input.jump = false; });
+  jumpBtn.addEventListener(ev, (e) => { e.preventDefault(); input.pressJump(false); });
 }
 runBtn.onclick = () => {
   input.setRunToggle(!input.runToggle);
@@ -113,7 +114,7 @@ const questions = [
 let quizSeq = 0;
 function closeModal() {
   answering = false;
-  input.enabled = true;
+  input.setEnabled(true);
   input.reset();
   modal.style.display = 'none';
   modal.replaceChildren();
@@ -121,7 +122,7 @@ function closeModal() {
 function questionAt(id: string) {
   if (answering) return;
   answering = true;
-  input.enabled = false;
+  input.setEnabled(false);
   input.reset();
   const q = questions[quizSeq++ % questions.length]!;
   const card = document.createElement('div');
@@ -227,7 +228,7 @@ const demoHost: MobilityHost = {
   startMission(v) {
     const m = localMission(v);
     answering = true;
-    input.enabled = false;
+    input.setEnabled(false);
     input.reset();
     localMissionDialog(
       v,
@@ -243,7 +244,7 @@ const demoHost: MobilityHost = {
       },
       () => {
         answering = false;
-        input.enabled = true;
+        input.setEnabled(true);
       },
     );
   },
@@ -252,7 +253,7 @@ const demoHost: MobilityHost = {
   notify: (t, k) => notify(t, k ?? 'info'),
   setBusy: (b) => {
     answering = b;
-    input.enabled = !b;
+    input.setEnabled(!b);
     input.reset();
   },
 };
@@ -341,3 +342,9 @@ engine.onFrame((dt, t) => {
   layout: () => ({ vehicles: layout.living.vehicles, rifts: layout.living.rifts, vendors: layout.living.vendors.map((v) => ({ id: v.id, x: v.x, y: v.y, z: v.z, nama: v.nama })), jetpacks: layout.living.jetpacks, runway: layout.living.runway }),
 };
 engine.start();
+
+// Musik latar Dunia Kota (mulai setelah sentuhan pertama — kebijakan autoplay browser)
+music.setTheme('kota');
+
+// Setelah logika frame membaca masukan: lepaskan "latch" ketukan Lompat
+engine.onFrame(() => input.endFrame());

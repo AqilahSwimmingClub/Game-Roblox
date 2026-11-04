@@ -5,11 +5,12 @@
  */
 import './ui/styles.css';
 import * as THREE from 'three';
-import { EV, LIMITS, WORLDS, WORLD_ENV, OXYGEN_SECONDS, isWorldId, SHOP, CATALOG, buildKota, buildLobby, DEFAULT_AVATAR, type ItemOffer, type WalletMsg, type VehicleStateMsg, type Vendor, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
+import { EV, LIMITS, WORLDS, WORLD_ENV, OXYGEN_SECONDS, isWorldId, zoneIn, SHOP, CATALOG, buildKota, buildLobby, DEFAULT_AVATAR, type ItemOffer, type WalletMsg, type VehicleStateMsg, type Vendor, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type PodiumShowMsg, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
 import { Engine } from './engine/engine.js';
 import { Input } from './engine/input.js';
 import { FollowCamera } from './engine/camera.js';
 import { Stage, type Prompt } from './world/stage.js';
+import { music } from './world/audio.js';
 import { LocalPlayer } from './world/localPlayer.js';
 import { RemotePlayers } from './world/remotePlayers.js';
 import { Effects } from './world/effects.js';
@@ -18,7 +19,8 @@ import { h, ui, notify } from './ui/dom.js';
 import { splash, welcome, masukSesi, pilihIdentitas, menungguGuru } from './ui/intro.js';
 import { pilihAvatar } from './ui/avatarScreen.js';
 import { Hud, WaitingRoom } from './ui/hud.js';
-import { showQuestion, showFinal, podiumBanner, countdown, showMap, blocker } from './ui/play.js';
+import { showQuestion, showFinal, countdown, showMap, blocker } from './ui/play.js';
+import { PodiumShow, type PodiumMsg } from './world/podiumShow.js';
 import { Mobility, type MobilityHost, type MobilityPrompt } from './world/living/mobility.js';
 import { WalletStore } from './world/living/inventory.js';
 import { OfferStore, type OfferApi } from './world/living/offers.js';
@@ -56,6 +58,17 @@ let waiting: WaitingRoom | null = null;
 let questionOpen = false;
 let riding = false;
 let busy = false;
+/**
+ * Kunci kontrol pemain per alasan (soal, dialog kendaraan, ganti avatar, pindah dunia).
+ * Kontrol aktif hanya bila TIDAK ada kunci; setiap pengunci melepas kuncinya sendiri (try/finally),
+ * sehingga satu jalur gagal/batal tidak bisa meninggalkan joystick terkunci.
+ */
+const inputLocks = new Set<string>();
+function lockInput(reason: string, on: boolean) {
+  if (on) inputLocks.add(reason);
+  else inputLocks.delete(reason);
+  input.setEnabled(inputLocks.size === 0);
+}
 let prompt: Prompt | MobilityPrompt | null = null;
 let mobility: Mobility | null = null;
 let ended = false;
@@ -72,7 +85,7 @@ applyQuality();
 // ───────────────────────── HUD ─────────────────────────
 const hud = new Hud({
   action: () => input.fireAction(),
-  jump: (d) => (input.jump = d),
+  jump: (d) => input.pressJump(d),
   dive: (d) => (input.dive = d),
   runToggle: (on) => input.setRunToggle(on),
   emote: (id) => {
@@ -109,6 +122,8 @@ const WORLD_COLOR: Record<WorldId, string> = { kota: '#FF8A3D', hutan: '#2FBF71'
 
 // ───────────────────────── adegan ─────────────────────────
 function loadStage(scene: SceneId) {
+  podiumShow?.dispose();
+  podiumShow = null;
   stage?.dispose();
   remote.clear();
   effects.clear();
@@ -121,6 +136,9 @@ function loadStage(scene: SceneId) {
     (engine.scene.fog as THREE.Fog | null)?.color.setHex(0xcfe8ff);
   }
   oxygen = OXYGEN_SECONDS;
+  music.setTheme(scene === 'lobi' ? 'lobi' : scene === 'podium' ? 'podium' : scene);
+  music.setUnderwater(false);
+  music.setOxygenLow(false);
 }
 
 /** Sapaan & tips saat masuk tiap dunia. */
@@ -136,6 +154,7 @@ async function goScene(scene: SceneId): Promise<boolean> {
   if (busy) return false;
   busy = true;
   riding = false;
+  lockInput('pindah', true);
   try {
     const r = await net.enter(scene);
     if (!r.ok) {
@@ -146,6 +165,7 @@ async function goScene(scene: SceneId): Promise<boolean> {
     if (!player) {
       player = new LocalPlayer(engine.scene, avatarCfg, label());
       mobility = new Mobility(engine.scene, input, cam, player, mobilityHost, input.touch);
+      hud.walletSlot.appendChild(mobility.walletBtn); // dompet/tas di baris info HUD (tidak menumpuk elemen lain)
       mobility.setCity(stage!.living, stage!.living ? stage!.collision : null);
     }
     if (r.vehicles && stage!.living) stage!.living.parked.setStates(r.vehicles);
@@ -160,9 +180,14 @@ async function goScene(scene: SceneId): Promise<boolean> {
     orbit = false;
     hud.setMode(scene === 'lobi' ? 'lobi' : scene === 'podium' ? 'none' : 'dunia');
     if (isWorldId(scene)) notify(WELCOME[scene], 'misi');
+    // adegan baru: dialog/kunci sisa adegan lama tidak boleh terbawa
+    mobility?.resetTransient();
+    lockInput('mobilitas', false);
+    if (!questionOpen) lockInput('soal', false);
     return true;
   } finally {
     busy = false;
+    lockInput('pindah', false);
   }
 }
 
@@ -273,21 +298,22 @@ const mobilityHost: MobilityHost = {
       };
     }),
   notify: (t, k) => notify(t, k ?? 'info'),
-  setBusy: (b) => {
-    input.enabled = !b;
-    input.reset();
-  },
+  setBusy: (b) => lockInput('mobilitas', b),
 };
 
 async function openQuestion(pointId: string) {
   if (!player) return;
   questionOpen = true;
-  input.enabled = false;
-  input.reset();
-  const r = await net.interact(pointId);
+  lockInput('soal', true);
+  let r: Awaited<ReturnType<typeof net.interact>>;
+  try {
+    r = await net.interact(pointId);
+  } catch {
+    r = { ok: false, error: 'Soal belum bisa dibuka. Coba lagi.' };
+  }
   if (!r.ok) {
     questionOpen = false;
-    input.enabled = true;
+    lockInput('soal', false);
     notify(r.error, 'peringatan');
     return;
   }
@@ -309,7 +335,7 @@ async function openQuestion(pointId: string) {
     (finished) => {
       if (!finished) net.closeQuestion();
       questionOpen = false;
-      input.enabled = true;
+      lockInput('soal', false);
     },
   );
 }
@@ -345,14 +371,18 @@ async function enterWorldFlow(w: WorldId) {
 }
 
 async function changeAvatar() {
-  input.enabled = false;
+  lockInput('avatar', true);
   hud.setMode('none');
-  avatarCfg = await pilihAvatar(avatarCfg, label(), async (cfg) => {
-    await net.setAvatar(cfg);
-  });
-  player?.setAvatar(avatarCfg);
-  hud.setMode(stage?.scene === 'lobi' ? 'lobi' : 'dunia');
-  input.enabled = true;
+  try {
+    avatarCfg = await pilihAvatar(avatarCfg, label(), async (cfg) => {
+      const result = await net.setAvatar(cfg);
+      if (!result.ok) throw new Error('error' in result ? result.error : 'Gagal menyimpan karakter. Coba lagi.');
+    });
+    player?.setAvatar(avatarCfg);
+  } finally {
+    hud.setMode(stage?.scene === 'lobi' ? 'lobi' : 'dunia');
+    lockInput('avatar', false);
+  }
 }
 
 // ───────────────────────── event server ─────────────────────────
@@ -426,10 +456,10 @@ net.on<FinalResultMsg>(EV.ended, (r) => {
   riding = false;
   document.querySelectorAll('.soal').forEach((n) => n.closest('.screen')?.remove());
   questionOpen = false;
-  input.enabled = true;
+  lockInput('soal', false);
   showFinal(r, () => {});
 });
-net.on<{ top3: PodiumEntry[]; total: number }>(EV.podium, (m) => void runPodium(m.top3));
+net.on<PodiumShowMsg>(EV.podium, (m) => void runPodium(m));
 net.on<{ approved: boolean }>(EV.identityApproved, (m) => {
   if (me) me.approved = m.approved;
 });
@@ -439,75 +469,134 @@ net.on<{ reason: string; retry?: boolean }>(EV.kicked, (m) => {
   blocker(m.retry ? 'Belum disetujui guru' : 'Sesi berakhir untuk perangkat ini', m.reason, { label: m.retry ? 'Coba Lagi' : 'Muat Ulang', fn: () => location.reload() });
 });
 
-async function runPodium(top3: PodiumEntry[]) {
-  document.querySelectorAll('.screen.gelap').forEach((n) => n.remove());
-  const ok = await goScene('podium');
-  if (!ok || !stage) return;
-  hud.setMode('none');
-  if (player) player.frozen = true;
-  stage.showWinners([]);
-  const shown: PodiumEntry[] = [];
-  // Kamera sinematik menghadap panggung
-  const banner = podiumBanner(
-    top3,
-    (rank) => {
-      const e = top3.find((t) => t.rank === rank);
-      if (e) shown.push(e);
-      stage?.showWinners(shown);
-      effects.sparkle(new THREE.Vector3(rank === 1 ? 0 : rank === 2 ? -4.4 : 4.4, 4, -6));
-    },
-    () => {
-      for (let i = 0; i < 4; i++)
-        setTimeout(() => {
-          effects.firework(new THREE.Vector3(-12 + Math.random() * 24, 12 + Math.random() * 4, -10));
-          effects.confetti(new THREE.Vector3(0, 12, -4));
-        }, i * 900);
-    },
-  );
-  podiumCam = true;
-  setTimeout(() => {
-    banner.close();
-    podiumCam = false;
-    if (player) player.frozen = false;
-    ui.add(h('div', { class: 'panel banner-bawah pop' }, h('h3', null, 'Terima kasih sudah bermain EDUVERSE!'), h('p', { class: 'muted', style: 'font-weight:800;margin:4px 0 0' }, 'Kamu boleh menjelajahi arena podium.')));
-  }, 26_000);
+/**
+ * Acara Podium Juara 3D. Server mengirim id + jam mulai (startAt) + juara → semua HP memutar linimasa yang sama.
+ * Event yang sama datang lagi (sambung ulang / bergabung ulang) → acara yang sedang berjalan dilanjutkan, tidak diulang.
+ * Server lama tanpa id/startAt → id dari isi juara, mulai saat diterima.
+ */
+let podiumShow: PodiumShow | null = null;
+let podiumLoading: number | null = null;
+let podiumThanks: HTMLElement | null = null;
+function podiumMsgOf(m: Partial<PodiumShowMsg> & { top3: PodiumEntry[] }): PodiumMsg {
+  const id = typeof m.id === 'number' ? m.id : [...JSON.stringify(m.top3.map((e) => [e.rank, e.absen, e.poin]))].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7);
+  return { id, startAt: typeof m.startAt === 'number' ? m.startAt : net.serverNow() + 1500, top3: m.top3, total: m.total ?? m.top3.length };
 }
-let podiumCam = false;
-
-// Sambung ulang otomatis: bergabung lagi dengan identitas yang sama, kembali ke adegan terakhir
-net.onReconnect(async () => {
-  if (!net.code || !me) return;
-  const r = await net.join(net.code);
-  if (!r.ok) return notify(r.error, 'peringatan');
-  session = r.state;
-  roster = r.roster;
-  if (!r.me) return;
-  me = r.me;
-  notify('Tersambung kembali!', 'sukses');
-  if (stage) {
-    // Server melepas kendaraan saat koneksi putus (kendaraan diparkir di posisi terakhir yang sah)
-    mobility?.forceWalk();
-    const res = await net.enter(stage.scene);
-    if (res.ok && player) {
-      player.teleport(res.spawn.x, res.spawn.y, res.spawn.z);
-      if (res.points) stage.setPoints(res.points, res.done);
-      if (res.vehicles) stage.living?.parked.setStates(res.vehicles);
-      if (mobility) mobility.hasJetpack = !!res.jetpack;
-      wallet.set(res.dompet);
-      offerStore.clearAll();
-      offerStore.apply(res.offers);
+async function runPodium(raw: Partial<PodiumShowMsg> & { top3: PodiumEntry[] }) {
+  const msg = podiumMsgOf(raw);
+  if (podiumShow?.id === msg.id || podiumLoading === msg.id) return; // acara ini sudah tampil / sedang dimuat
+  podiumLoading = msg.id;
+  try {
+    document.querySelectorAll('.screen.gelap').forEach((n) => n.remove());
+    podiumThanks?.remove();
+    if (stage?.scene !== 'podium' || podiumShow) {
+      // Muat panggung segar (juga untuk "Tampilkan Podium Lagi")
+      if (!(await goScene('podium'))) return;
     }
+    if (!stage) return;
+    hud.setMode('none');
+    if (player) player.frozen = true;
+    music.setTheme('podium');
+    music.setVariant('pembukaan');
+    podiumShow = new PodiumShow(msg, {
+      engine,
+      stage,
+      effects,
+      music,
+      serverNow: () => net.serverNow(),
+      onEnd: () => {
+        if (player) player.frozen = false;
+        cam.snap();
+        podiumThanks = ui.add(
+          h('div', { class: 'panel banner-bawah pop' }, h('h3', null, 'Terima kasih sudah bermain EDUVERSE!'), h('p', { class: 'muted', style: 'font-weight:800;margin:4px 0 0' }, 'Kamu boleh menjelajahi arena podium.')),
+        );
+        setTimeout(() => podiumThanks?.remove(), 8000);
+      },
+    });
+  } finally {
+    podiumLoading = null;
   }
-});
+}
+
+// Sambung ulang otomatis: bergabung lagi dengan identitas yang sama, kembali ke dunia & posisi terakhir yang
+// tervalidasi server, pulihkan skor/tas/penawaran, lalu aktifkan kembali kontrol. Dicoba ulang bila gagal.
+let rejoining = false;
+async function rejoin(attempt = 1): Promise<void> {
+  if (!net.code || !me || !net.connected) return;
+  if (rejoining) return;
+  rejoining = true;
+  try {
+    const r = await net.join(net.code);
+    if (!r.ok) {
+      // sesi berakhir/ditolak → beri tahu; galat sementara → coba lagi
+      if (/tidak ditemukan|berakhir|selesai/i.test(r.error)) return void notify(r.error, 'peringatan');
+      throw new Error(r.error);
+    }
+    session = r.state;
+    roster = r.roster;
+    if (!r.me) return;
+    me = r.me;
+    lastScore.poin = me.poin ?? lastScore.poin;
+    hud.setScore(lastScore.poin, lastScore.rank, lastScore.total);
+    wallet.set(me.dompet);
+    if (stage && stage.scene !== 'podium') {
+      // Server melepas kendaraan saat koneksi putus (kendaraan diparkir di posisi terakhir yang sah)
+      mobility?.forceWalk();
+      const res = await net.enter(stage.scene);
+      if (res.ok && player) {
+        player.teleport(res.spawn.x, res.spawn.y, res.spawn.z, player.ry);
+        if (res.points) stage.setPoints(res.points, res.done);
+        if (res.vehicles) stage.living?.parked.setStates(res.vehicles);
+        if (mobility) mobility.hasJetpack = !!res.jetpack;
+        wallet.set(res.dompet);
+        offerStore.clearAll();
+        offerStore.apply(res.offers);
+        cam.snap();
+      } else if (!res.ok && isWorldId(stage.scene)) {
+        // dunia ditutup guru / permainan belum berjalan → kembali ke lobi dengan aman
+        notify(res.error, 'info');
+        rejoining = false;
+        await goScene('lobi');
+      }
+    }
+    lockInput('koneksi', false);
+    input.reset();
+    reconnects++;
+    notify('Tersambung kembali!', 'sukses');
+    if (r.podium) void runPodium(r.podium); // id sama → acara yang berjalan dilanjutkan, tidak diulang
+  } catch {
+    if (attempt < 5 && net.connected) setTimeout(() => void rejoin(attempt + 1), 600 * attempt);
+  } finally {
+    rejoining = false;
+  }
+}
+let reconnects = 0;
+net.onReconnect(() => void rejoin());
+
 let offlineBanner: { close: () => void } | null = null;
-net.socket.on('disconnect', () => {
-  setTimeout(() => {
-    if (!net.connected && me && !offlineBanner) offlineBanner = blocker('Koneksi terputus', 'Menyambung ulang otomatis… Pastikan internet HP menyala.');
+let offlineTimer = 0;
+net.socket.on('disconnect', (reason) => {
+  lastDisconnect = reason;
+  clearTimeout(offlineTimer);
+  // putus singkat (< 2,5 dtk, mis. pindah menara seluler) tidak perlu dialog
+  offlineTimer = window.setTimeout(() => {
+    if (net.connected || !me || offlineBanner) return;
+    lockInput('koneksi', true);
+    offlineBanner = blocker('Koneksi terputus', 'Menyambung ulang ke server EDUVERSE secara otomatis… Posisi, poin, dan tasmu aman.', { label: 'Muat Ulang', fn: () => location.reload() });
   }, 2500);
 });
 net.socket.on('connect', () => {
+  clearTimeout(offlineTimer);
   offlineBanner?.close();
   offlineBanner = null;
+  lockInput('koneksi', false);
+});
+let lastDisconnect = '';
+// Kembali dari latar belakang (layar HP mati / pindah aplikasi): sambungkan segera tanpa menunggu jeda backoff
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && !net.connected && me) net.socket.connect();
+});
+window.addEventListener('online', () => {
+  if (!net.connected && me) net.socket.connect();
 });
 
 // ───────────────────────── loop frame ─────────────────────────
@@ -515,6 +604,7 @@ let sendAcc = 0;
 let lastPromptKey = '';
 engine.onFrame((dt, t) => {
   effects.update(dt);
+  podiumShow?.update(dt, t);
   if (orbit || !player || !stage) {
     // Panorama welcome: kamera berputar pelan mengelilingi lobi
     const a = t * 0.08;
@@ -533,7 +623,6 @@ engine.onFrame((dt, t) => {
 
   // Mode uji: tahan tombol SELAM / LOMPAT lewat input yang sama dengan pemain sungguhan
   if (debug && debugHold.dive) input.dive = true;
-  if (debug && debugHold.jump) input.jump = true;
   // Autopilot khusus mode uji (?debug=1): berjalan biasa ke target lewat input yang sama — server tetap memvalidasi.
   if (debug && autopilot) {
     const dx = autopilot.x - player.body.x;
@@ -560,6 +649,7 @@ engine.onFrame((dt, t) => {
     }
   } else if (!(mobility && mobility.update(dt, t))) player.update(dt, input, cam, stage.collision);
   player.lowGravity = isWorldId(stage.scene) && WORLD_ENV[stage.scene].lowGravity;
+  hud.setCanDive(isWorldId(stage.scene) && (WORLD_ENV[stage.scene].oxygen || player.body.swimming));
   // Dunia Laut: oksigen berkurang saat kepala di bawah air (kecuali di kapal selam); habis → otomatis naik ke permukaan
   if (isWorldId(stage.scene) && WORLD_ENV[stage.scene].oxygen && !mobility?.driving) {
     const under = player.body.submerged >= 0.98;
@@ -573,6 +663,8 @@ engine.onFrame((dt, t) => {
     }
     oxygen = under ? Math.max(0, oxygen - dt) : Math.min(OXYGEN_SECONDS, oxygen + dt * 6);
     hud.setOxygen(under || oxygen < OXYGEN_SECONDS ? oxygen / OXYGEN_SECONDS : null);
+    music.setUnderwater(under);
+    music.setOxygenLow(under && oxygen < OXYGEN_SECONDS * 0.25);
     if (under && oxygen <= 0) {
       const w = stage.collision.waterAt(player.body.x, player.body.z);
       player.teleport(player.body.x, (w?.surface ?? 0) - 1.2, player.body.z, player.ry);
@@ -582,17 +674,19 @@ engine.onFrame((dt, t) => {
   } else {
     hud.setOxygen(null);
     document.body.classList.remove('bawah-air');
+    music.setUnderwater(false);
+    music.setOxygenLow(false);
   }
+  // Hutan: nuansa misteri ringan di Gua Kristal
+  if (stage.scene === 'hutan') music.setVariant(zoneIn('hutan', player.body.x, player.body.z)?.id === 'gua' ? 'misteri' : '');
 
   const b = player.body;
   if (b.y < -30) {
     player.teleport(stage.spawn.x, stage.spawn.y + 0.5, stage.spawn.z);
     notify('Hup! Kamu kembali ke tempat aman.', 'info');
   }
-  if (podiumCam) {
-    engine.camera.position.set(Math.sin(t * 0.2) * 3, 4.6, 12);
-    engine.camera.lookAt(0, 2.6, -6);
-  } else {
+  if (podiumShow?.cinematic) podiumShow.applyCamera(engine.camera, dt, t);
+  else {
     const ct = mobility?.camTarget() ?? b;
     cam.update(dt, ct.x, ct.y, ct.z, stage.collision);
   }
@@ -638,11 +732,14 @@ if (debug) {
     friends: (r = 50) => (player ? remote.near(player.body.x, player.body.z, r) : []),
     vendors: () => stage?.living?.layout.vendors.map((v) => ({ id: v.id, x: v.x, y: v.y, z: v.z })) ?? [],
     rifts: () => stage?.living?.layout.rifts.map((r) => ({ id: r.id, x: r.x, y: r.y, z: r.z, to: r.to })) ?? [],
+    /** Uji: putuskan transport Socket.IO seperti jaringan HP yang hilang (klien menyambung ulang sendiri). */
+    dropConnection: () => net.socket.io.engine?.close(),
     exitVehicle: () => (mobility?.driving ? mobility.act({ kind: 'turun', id: mobility.driving.id, label: '' }) : null),
     hold: (k: Partial<typeof debugHold>) => {
       Object.assign(debugHold, k);
       if (!debugHold.dive) input.dive = false;
-      if (!debugHold.jump) input.jump = false;
+      // lompat lewat jalur yang sama dengan tombol Lompat di layar (termasuk jump buffer)
+      if (k.jump !== undefined) input.pressJump(k.jump);
     },
   };
 }
@@ -654,12 +751,18 @@ if (debug) document.body.appendChild(debugEl);
 function exposeState() {
   (window as unknown as { __edu: unknown }).__edu = {
     scene: stage?.scene ?? null,
+    input: { ...input.debugState(), locks: [...inputLocks] },
+    net: { connected: net.connected, reconnects, lastDisconnect, banner: !!offlineBanner },
+    cam: { x: round(engine.camera.position.x), y: round(engine.camera.position.y), z: round(engine.camera.position.z) },
+    others: remote.named(),
+    music: music.state(),
     env: { lowGravity: !!player?.lowGravity, oxygen: round(oxygen), oxygenBar: hud.oxygenShown, swimming: !!player?.body.swimming, submerged: player ? round(player.body.submerged) : 0, sky: stage ? (engine.scene.background as THREE.Color | null)?.getHex() ?? null : null },
     pos: player ? { x: player.body.x, y: player.body.y, z: player.body.z } : null,
     remotes: remote.count(),
     remoteChars: remote.characters(),
     myChar: avatarCfg.karakter,
     podium: stage?.podiumShown ?? [],
+    podiumShow: podiumShow?.state() ?? null,
     points: stage?.points?.list().length ?? 0,
     score: lastScore.poin,
     status: session?.status ?? null,
@@ -736,7 +839,10 @@ async function boot() {
   hud.setProfile(me.nama, me.absen);
   lastScore = { poin: me.poin ?? 0, rank: null, total: 0, dijawab: me.dijawab ?? 0 };
   hud.setScore(lastScore.poin, null, 0);
-  if (isNew) avatarCfg = await pilihAvatar(avatarCfg, label(), async (cfg) => void (await net.setAvatar(cfg)));
+  if (isNew) avatarCfg = await pilihAvatar(avatarCfg, label(), async (cfg) => {
+    const result = await net.setAvatar(cfg);
+    if (!result.ok) throw new Error('error' in result ? result.error : 'Gagal menyimpan karakter. Coba lagi.');
+  });
   ui.clearScreens();
 
   // Kembali ke dunia terakhir bila permainan sedang berjalan, jika tidak ke lobi
@@ -747,7 +853,8 @@ async function boot() {
   }
   await goScene('lobi');
   const only = soleWorld();
-  if (session.status === 'selesai') notify('Permainan sesi ini sudah selesai. Tunggu podium dari gurumu.', 'info');
+  if (session.status === 'selesai' && j.podium) void runPodium(j.podium);
+  else if (session.status === 'selesai') notify('Permainan sesi ini sudah selesai. Tunggu podium dari gurumu.', 'info');
   else if (!running && only) {
     // Ruang tunggu langsung: begitu guru menekan Mulai, semua siswa masuk ke dunia yang sama
     void enterWorldFlow(only);
@@ -757,3 +864,6 @@ async function boot() {
 }
 
 void boot();
+
+// Setelah semua logika frame membaca masukan: lepaskan "latch" ketukan Lompat (harus didaftarkan SETELAH loop utama)
+engine.onFrame(() => input.endFrame());
