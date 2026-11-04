@@ -5,6 +5,20 @@
 > Itulah penyebab pesan *"Koneksi terputus. Menyambung ulang…"*: Vercel hanya menyajikan file statis,
 > sehingga `/socket.io` dan `/api` tidak punya server. Langkah di bawah menyalakannya.
 
+## Status alamat publik (diperiksa otomatis — workflow "Uji Deployment Publik")
+
+Setiap push ke `dev/**` dan setiap pagi hari sekolah, GitHub Actions (yang punya akses internet) memeriksa:
+
+| Alamat | Hasil terakhir |
+|---|---|
+| Production `https://eduverse-web-preview.vercel.app` | `/` & `/demo.html` hidup, **`/guru/` & `/eduverse-config.js` 404** → production masih versi lama (branch demo offline). Sengaja belum diganti. |
+| Preview branch `https://eduverse-web-preview-git-de-10d7d3-aqilahswimmingclubs-projects.vercel.app` | diperiksa ketat (game, `/guru/`, demo, config) + Mode Demo dimainkan di Chromium |
+| Backend dari `eduverse-config.js` (`https://eduverse-aqilah-api.onrender.com`) | **belum aktif** — perlu Langkah 1 di bawah oleh pemilik akun |
+
+Ringkasan tiap jalannya ada di tab *Actions → Uji Deployment Publik*.
+
+**Tanpa backend internet**, kelas tetap bisa berjalan dengan **Server Sekolah** di jaringan lokal: [SERVER-SEKOLAH.md](SERVER-SEKOLAH.md).
+
 ## Arsitektur
 
 ```
@@ -57,9 +71,9 @@ Migrasi database berjalan otomatis saat server mulai.
 
 ## Langkah 2 — Sambungkan Vercel ke backend
 
-1. Vercel Dashboard → proyek **eduverse-web-preview** → *Settings → Git*: pastikan *Production Branch* = branch yang
-   ingin diterbitkan (saat ini `test/eduverse-offline-demo`; ganti ke `dev/eduverse-online-avatar20` untuk menguji tahap ini,
-   atau `main` setelah PR digabung). Setiap push ke branch lain otomatis membuat *Preview Deployment*.
+1. Vercel Dashboard → proyek **eduverse-web-preview** → *Settings → Git*: *Production Branch* saat ini masih branch demo
+   offline lama. Setelah backend aktif dan uji kelas lulus, ganti ke `main` (setelah PR digabung) atau sementara
+   `dev/eduverse-living-city`. Setiap push ke branch lain otomatis membuat *Preview Deployment*.
 2. *Settings → Environment Variables* (opsional bila alamat Render = bawaan):
    `EDUVERSE_SERVER_URL = https://<alamat-render-anda>` → *Redeploy*.
 3. *Settings → Build & Development*: biarkan *Build/Install Command* default — `vercel.json` sudah mengaturnya

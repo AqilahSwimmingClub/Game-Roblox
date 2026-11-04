@@ -22,10 +22,23 @@ permissions:
 
 jobs:
   publik:
-    name: Alamat publik (Vercel + backend)
+    name: Alamat publik (${{ matrix.nama }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Preview branch ini (alias tetap dari Vercel) — WAJIB lulus
+          - nama: preview dev/eduverse-living-city
+            url: https://eduverse-web-preview-git-de-10d7d3-aqilahswimmingclubs-projects.vercel.app
+            strict: 'true'
+          # Production — hanya dilaporkan (sengaja belum diganti sampai alur lengkap siap)
+          - nama: production
+            url: https://eduverse-web-preview.vercel.app
+            strict: 'false'
     env:
-      WEB_URL: ${{ github.event.inputs.web_url || 'https://eduverse-web-preview.vercel.app' }}
+      WEB_URL: ${{ github.event.inputs.web_url || matrix.url }}
+      STRICT: ${{ matrix.strict }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -35,7 +48,7 @@ jobs:
         id: cek
         run: node tests/deploy/check-public.mjs
       - name: Mode Demo dimainkan di alamat publik
-        if: steps.cek.outputs.web_ok == 'true'
+        if: steps.cek.outputs.demo_ok == 'true' && matrix.strict == 'true'
         run: |
           npm install --no-save --no-audit --no-fund playwright@1.63.0
           npx playwright install --with-deps chromium
@@ -45,7 +58,7 @@ jobs:
       - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: uji-deployment-publik
+          name: uji-deployment-${{ matrix.strict == 'true' && 'preview' || 'production' }}
           path: |
             shots
             deploy-check.json

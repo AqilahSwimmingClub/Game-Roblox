@@ -26,7 +26,9 @@ async function get(url, opts = {}) {
   }
 }
 
+const STRICT = process.env.STRICT !== 'false';
 let webOk = true;
+let demoOk = false;
 for (const [path, must] of [
   ['/', 'EDUVERSE'],
   ['/demo.html', 'Demo'],
@@ -35,6 +37,7 @@ for (const [path, must] of [
   const r = await get(WEB + path);
   const ok = r.status === 200 && r.body.includes(must);
   if (!ok) webOk = false;
+  if (path === '/demo.html') demoOk = ok;
   add(`Frontend ${path}`, ok, r.status === 401 || r.status === 403 ? `HTTP ${r.status} — dilindungi (Vercel Deployment Protection)` : `HTTP ${r.status} · ${r.ms} ms`);
 }
 
@@ -68,7 +71,9 @@ if (server) {
 fs.writeFileSync('deploy-check.json', JSON.stringify(out, null, 2));
 const md = ['## Uji Deployment Publik', '', `Frontend: ${WEB}`, '', '| | Pemeriksaan | Hasil |', '|---|---|---|', ...summary, ''];
 if (!backendOk) md.push('> ⚠️ **Backend publik belum aktif** — mode kelas (kode kelas, Dashboard Guru, multipemain) belum bisa dipakai lewat internet. Mode Demo tetap jalan. Lihat `docs/DEPLOYMENT.md`.');
+if (!webOk && !STRICT) md.push('> ℹ️ Alamat ini hanya dilaporkan (bukan versi yang sedang dikembangkan): kemungkinan masih versi lama.');
 if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md.join('\n') + '\n');
-if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `web_ok=${webOk}\nbackend_ok=${backendOk}\n`);
+if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `web_ok=${webOk}\ndemo_ok=${demoOk}\nbackend_ok=${backendOk}\n`);
 if (!backendOk) console.log('::warning::Backend publik belum aktif — mode kelas belum bisa dipakai lewat internet (lihat docs/DEPLOYMENT.md)');
-process.exitCode = webOk ? 0 : 1;
+if (!webOk && !STRICT) console.log(`::warning::${WEB} belum berisi versi lengkap (mis. /guru/ belum ada) — hanya dilaporkan`);
+process.exitCode = webOk || !STRICT ? 0 : 1;
