@@ -1,0 +1,90 @@
+/**
+ * Uji alamat publik EDUVERSE (dijalankan GitHub Actions — punya akses internet terbuka).
+ *   WEB_URL=https://eduverse-web-preview.vercel.app node tests/deploy/check-public.mjs
+ * Frontend wajib hidup (gagal = exit 1). Backend: dicek dari eduverse-config.js; bila belum aktif → peringatan.
+ */
+import fs from 'node:fs';
+
+const WEB = (process.env.WEB_URL ?? 'https://eduverse-web-preview.vercel.app').replace(/\/$/, '');
+const out = { web: WEB, at: new Date().toISOString(), checks: [] };
+const summary = [];
+const add = (name, ok, detail, level = ok ? 'ok' : 'gagal') => {
+  out.checks.push({ name, ok, detail, level });
+  const icon = level === 'ok' ? '✅' : level === 'peringatan' ? '⚠️' : '❌';
+  summary.push(`| ${icon} | ${name} | ${String(detail).replace(/\|/g, '/')} |`);
+  console.log(`${icon} ${name} — ${detail}`);
+};
+
+async function get(url, opts = {}) {
+  const t0 = Date.now();
+  try {
+    const r = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(opts.timeout ?? 20000) });
+    const body = await r.text();
+    return { status: r.status, body, ms: Date.now() - t0, headers: r.headers };
+  } catch (e) {
+    return { status: 0, body: String(e?.cause?.code ?? e?.message ?? e), ms: Date.now() - t0 };
+  }
+}
+
+const STRICT = process.env.STRICT !== 'false';
+let webOk = true;
+// Vercel Deployment Protection / alias tidak ada → Vercel menyajikan halaman HTML miliknya (bukan EDUVERSE)
+const probe = await get(WEB + '/');
+const vercelWall = probe.status === 200 && !probe.body.includes('EDUVERSE') && /vercel\.com|data-dpl-id|_vercel_sso/i.test(probe.body);
+if (vercelWall) {
+  add('Akses publik', false, 'Vercel menampilkan halaman miliknya (Deployment Protection aktif atau alias tidak ada) — buka Vercel → Settings → Deployment Protection, atau pakai alamat production', 'peringatan');
+  fs.writeFileSync('deploy-check.json', JSON.stringify(out, null, 2));
+  if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, ['## Uji Deployment Publik', '', `Frontend: ${WEB}`, '', '| | Pemeriksaan | Hasil |', '|---|---|---|', ...summary, ''].join('\n') + '\n');
+  if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, 'web_ok=false\ndemo_ok=false\nbackend_ok=false\n');
+  console.log(`::warning::${WEB} tidak bisa diakses publik (dilindungi Vercel / alias tidak ada) — pengaturan akun Vercel`);
+  process.exit(0);
+}
+let demoOk = false;
+for (const [path, must] of [
+  ['/', 'EDUVERSE'],
+  ['/demo.html', 'Demo'],
+  ['/guru/', '<div'],
+]) {
+  const r = await get(WEB + path);
+  const ok = r.status === 200 && r.body.includes(must);
+  if (!ok) webOk = false;
+  if (path === '/demo.html') demoOk = ok;
+  add(`Frontend ${path}`, ok, r.status === 401 || r.status === 403 ? `HTTP ${r.status} — dilindungi (Vercel Deployment Protection)` : `HTTP ${r.status} · ${r.ms} ms`);
+}
+
+// Alamat backend yang dipakai frontend
+const cfg = await get(WEB + '/eduverse-config.js');
+const m = cfg.body.includes('EDUVERSE_CONFIG') ? cfg.body.match(/https?:\/\/[^"'\s]+/) : null;
+const server = m ? m[0].replace(/\/$/, '') : '';
+add('eduverse-config.js', cfg.status === 200 && cfg.body.includes('EDUVERSE_CONFIG'), cfg.status === 200 ? `backend = ${server || '(kosong: satu domain)'}` : `HTTP ${cfg.status}`);
+if (cfg.status !== 200 || !cfg.body.includes('EDUVERSE_CONFIG')) webOk = false;
+
+let backendOk = false;
+if (server) {
+  // Render Free bisa tertidur: coba sampai ±90 dtk agar sempat bangun
+  let h = { status: 0, body: '' };
+  for (let i = 0; i < 6; i++) {
+    h = await get(server + '/api/health', { timeout: 25000 });
+    if (h.status === 200) break;
+    await new Promise((r) => setTimeout(r, 10000));
+  }
+  backendOk = h.status === 200 && h.body.includes('"ok":true');
+  add('Backend /api/health', backendOk, backendOk ? `HTTP 200 · ${h.ms} ms` : `belum aktif (HTTP ${h.status} ${String(h.body).slice(0, 80)}) — pemilik akun perlu membuat layanan backend (docs/DEPLOYMENT.md)`, backendOk ? 'ok' : 'peringatan');
+  if (backendOk) {
+    // Socket.IO handshake (polling) dari origin frontend → CORS & WebSocket server aktif
+    const s = await get(`${server}/socket.io/?EIO=4&transport=polling`);
+    const sio = s.status === 200 && s.body.includes('sid');
+    add('Backend Socket.IO handshake', sio, `HTTP ${s.status}`, sio ? 'ok' : 'gagal');
+    if (!sio) backendOk = false;
+  }
+}
+
+fs.writeFileSync('deploy-check.json', JSON.stringify(out, null, 2));
+const md = ['## Uji Deployment Publik', '', `Frontend: ${WEB}`, '', '| | Pemeriksaan | Hasil |', '|---|---|---|', ...summary, ''];
+if (!backendOk) md.push('> ⚠️ **Backend publik belum aktif** — mode kelas (kode kelas, Dashboard Guru, multipemain) belum bisa dipakai lewat internet. Mode Demo tetap jalan. Lihat `docs/DEPLOYMENT.md`.');
+if (!webOk && !STRICT) md.push('> ℹ️ Alamat ini hanya dilaporkan (bukan versi yang sedang dikembangkan): kemungkinan masih versi lama.');
+if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md.join('\n') + '\n');
+if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `web_ok=${webOk}\ndemo_ok=${demoOk}\nbackend_ok=${backendOk}\n`);
+if (!backendOk) console.log('::warning::Backend publik belum aktif — mode kelas belum bisa dipakai lewat internet (lihat docs/DEPLOYMENT.md)');
+if (!webOk && !STRICT) console.log(`::warning::${WEB} belum berisi versi lengkap (mis. /guru/ belum ada) — hanya dilaporkan`);
+process.exitCode = webOk || !STRICT ? 0 : 1;

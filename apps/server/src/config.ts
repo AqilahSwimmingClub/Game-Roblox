@@ -9,6 +9,8 @@ const isProd = process.env.NODE_ENV === 'production';
 
 export const config = {
   isProd,
+  /** Server Sekolah di jaringan lokal tanpa HTTPS (npm run sekolah): jangan paksa https/HSTS/cookie Secure. */
+  lanHttp: process.env.LAN_HTTP === '1',
   port: Number(process.env.PORT ?? 3000),
   databaseUrl: req('DATABASE_URL', isProd ? undefined : 'postgres://eduverse:eduverse@localhost:5432/eduverse'),
   jwtSecret: req('JWT_SECRET', isProd ? undefined : 'dev-only-secret-ganti-di-produksi'),

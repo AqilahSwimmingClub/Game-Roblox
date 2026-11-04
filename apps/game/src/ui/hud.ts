@@ -3,10 +3,11 @@
  * Kiri atas: profil + poin + peringkat · Tengah atas: timer · Kanan atas: menu, papan skor, peta mini, progres
  * Kiri bawah: emote (+ area joystick) · Kanan bawah: Aksi (hanya saat dekat objek), Lompat, Lari, Selam.
  */
-import { WORLDS, KOTA, KOTA_ZONES, type LeaderboardRow, type SessionPublicState, type WorldId } from '@eduverse/shared';
+import { WORLDS, KOTA, worldZones, worldLayout, WORLD_ENV, type LeaderboardRow, type SessionPublicState, type WorldId } from '@eduverse/shared';
 import { h, btn, ui } from './dom.js';
 import type { QualitySetting } from '../engine/quality.js';
 import { setSound, soundOn } from '../world/audio.js';
+import { drawLandmarks } from '../world/living/landmarks.js';
 
 export interface HudCallbacks {
   action: () => void;
@@ -94,8 +95,28 @@ export class Hud {
       h('div', { class: 'br' }, h('div', { class: 'col', style: 'gap:10px;align-items:flex-end' }, this.worldBtn, this.actionBtn, diveBtn), h('div', { class: 'col', style: 'gap:10px;align-items:center' }, runBtn, jumpBtn)),
     );
     ui.add(this.el);
+    this.el.appendChild(this.oxyEl);
     if (matchMedia('(pointer: coarse)').matches) this.el.style.setProperty('--mm', '112px');
     else this.el.style.setProperty('--mm', '168px');
+  }
+
+  /** Meteran oksigen Dunia Laut (null = sembunyikan). */
+  private oxyBar = h('div', { style: 'height:100%;width:100%;border-radius:8px;background:#1FB6D9;transition:width .2s' });
+  private oxyEl = h(
+    'div',
+    { class: 'oksigen', style: 'display:none;position:absolute;left:50%;top:64px;transform:translateX(-50%);width:min(260px,60vw);background:#fff;border:3px solid #1E2A4A;border-radius:12px;padding:3px;z-index:5;pointer-events:none' },
+    h('div', { style: 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:800 13px Nunito,sans-serif;color:#1E2A4A' }, 'OKSIGEN'),
+    h('div', { style: 'height:16px' }, this.oxyBar),
+  );
+  oxygenShown: number | null = null;
+  setOxygen(v: number | null) {
+    const show = v !== null && this.mode === 'dunia';
+    this.oxyEl.style.display = show ? '' : 'none';
+    this.oxygenShown = show ? v : null;
+    if (show) {
+      this.oxyBar.style.width = `${Math.round(v * 100)}%`;
+      this.oxyBar.style.background = v < 0.25 ? '#E74C3C' : v < 0.5 ? '#FFC93C' : '#1FB6D9';
+    }
   }
 
   setMode(mode: 'lobi' | 'dunia' | 'none') {
@@ -155,27 +176,29 @@ export class Hud {
   }
 
   // ── Peta mini (diputar mengikuti kamera) ──
-  drawMinimap(px: number, pz: number, camYaw: number, facing: number, points: { x: number; z: number; done: boolean; surprise: boolean }[], others: { x: number; z: number }[]) {
+  drawMinimap(px: number, pz: number, camYaw: number, facing: number, points: { x: number; z: number; done: boolean; surprise: boolean }[], others: { x: number; z: number }[], world: WorldId = 'kota') {
     if (this.mode !== 'dunia') return;
     const c = this.minimap.getContext('2d')!;
     const W = this.minimap.width;
     const range = 160; // meter dari tengah ke tepi
     const k = W / 2 / range;
     c.save();
-    c.fillStyle = '#9ed98f';
+    c.fillStyle = world === 'kota' ? '#9ed98f' : WORLD_ENV[world].mapBg;
     c.fillRect(0, 0, W, W);
     c.translate(W / 2, W / 2);
     c.rotate(camYaw);
     const tx = (x: number) => (x - px) * k;
     const tz = (z: number) => (z - pz) * k;
-    for (const zn of KOTA_ZONES) {
+    for (const zn of worldZones(world)) {
       c.fillStyle = '#' + zn.color.toString(16).padStart(6, '0') + '40';
       for (const r of zn.rects) c.fillRect(tx(r.x - r.hx), tz(r.z - r.hz), r.hx * 2 * k, r.hz * 2 * k);
     }
     c.fillStyle = '#3fb4e8';
-    c.fillRect(tx(-KOTA.half), tz(KOTA.riverZ0), KOTA.half * 2 * k, (KOTA.riverZ1 - KOTA.riverZ0) * k);
+    if (world !== 'laut') for (const w of worldLayout(world).water) c.fillRect(tx(w.x0), tz(w.z0), (w.x1 - w.x0) * k, (w.z1 - w.z0) * k);
+    else for (const zn of worldZones(world)) if (['pelabuhan', 'mercusuar', 'penyu', 'kelapa'].includes(zn.id)) (c.fillStyle = '#F3DFA2'), c.fillRect(tx(zn.label.x - 30), tz(zn.label.z - 30), 60 * k, 60 * k);
     c.fillStyle = '#5d6678';
     const road = (x: number, z: number, w: number, d: number) => c.fillRect(tx(x - w / 2), tz(z - d / 2), w * k, d * k);
+    if (world === 'kota') {
     road(0, -KOTA.ring, KOTA.ring * 2, KOTA.mainRoad);
     road(0, KOTA.ring, KOTA.ring * 2, KOTA.mainRoad);
     road(-KOTA.ring, 0, KOTA.mainRoad, KOTA.ring * 2);
@@ -187,6 +210,8 @@ export class Hud {
     road(KOTA.sideX, 0, KOTA.sideRoad, KOTA.half * 2);
     c.fillStyle = '#ff8a3d';
     c.fillRect(tx(-5), tz(-5), 10 * k, 10 * k);
+    }
+    drawLandmarks(c, tx, tz, 7, { upright: camYaw, clip: W, world });
     for (const o of others) {
       c.fillStyle = '#3BA7FF';
       c.beginPath();

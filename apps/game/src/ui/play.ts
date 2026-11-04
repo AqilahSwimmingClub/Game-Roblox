@@ -1,7 +1,8 @@
 /** Layar 9–13: Pop-up Soal, Hasil Jawaban, Hasil Akhir, Podium, hitung mundur, peta besar. */
-import { KOTA, KOTA_ZONES, type AnswerPayload, type AnswerResultMsg, type FinalResultMsg, type PodiumEntry, type PublicQuestion } from '@eduverse/shared';
+import { KOTA, KOTA_WORLD_HALF, worldZones, worldLayout, WORLD_ENV, type WorldId, type AnswerPayload, type AnswerResultMsg, type FinalResultMsg, type PodiumEntry, type PublicQuestion } from '@eduverse/shared';
 import { h, btn, ui } from './dom.js';
 import { sfx } from '../world/audio.js';
+import { drawLandmarks, LANDMARK_LEGEND } from '../world/living/landmarks.js';
 
 const LETTER = ['A', 'B', 'C', 'D', 'E'];
 
@@ -25,6 +26,8 @@ export function showQuestion(q: PublicQuestion, submit: (a: AnswerPayload) => Pr
 
   const render = () => {
     body.replaceChildren(h('div', { class: 'teks' }, q.prompt));
+    // gambar soal dari guru (data URL yang sudah diperiksa server)
+    if (q.image && /^data:image\/(png|jpeg|webp);base64,/.test(q.image)) body.appendChild(h('img', { class: 'soal-gambar', src: q.image, alt: 'Gambar soal', style: 'display:block;max-width:100%;max-height:min(34vh,260px);margin:8px auto;border-radius:12px;object-fit:contain' }));
     if (q.type === 'pg' || q.type === 'bs') {
       const opts = q.type === 'bs' ? ['Benar', 'Salah'] : q.options;
       const grid = h('div', { class: 'opsi' });
@@ -210,39 +213,46 @@ export function countdown(n: number) {
 }
 
 /** Peta besar Dunia Kota dengan label zona, posisi pemain, dan titik soal. */
-export function showMap(px: number, pz: number, points: { x: number; z: number; done: boolean; surprise: boolean }[]) {
-  const S = Math.min(window.innerWidth, window.innerHeight) * 0.78;
-  const cv = h('canvas', { width: 900, height: 900, style: `width:${S}px;height:${S}px;border-radius:20px;background:#9ed98f` }) as HTMLCanvasElement;
+export function showMap(px: number, pz: number, points: { x: number; z: number; done: boolean; surprise: boolean }[], world: WorldId = 'kota') {
+  const landscape = window.innerWidth > window.innerHeight;
+  // landscape: peta di kiri, keterangan di kanan → peta bisa hampir setinggi layar
+  const S = landscape ? Math.min(window.innerHeight - 36, window.innerWidth - 260) : Math.min(window.innerWidth - 32, window.innerHeight - 220);
+  const cv = h('canvas', { width: 900, height: 900, style: `width:${S}px;height:${S}px;border-radius:20px;background:${world === 'kota' ? '#9ed98f' : WORLD_ENV[world].mapBg}` }) as HTMLCanvasElement;
   const c = cv.getContext('2d')!;
-  const k = 900 / (KOTA.half * 2);
-  const t = (v: number) => (v + KOTA.half) * k;
-  for (const z of KOTA_ZONES) {
+  // Di luar pagar kota (Bandara / Kawasan Gedung Tinggi) peta diperbesar cakupannya.
+  const HALF = world !== 'kota' ? WORLD_ENV[world].mapHalf : Math.abs(px) > KOTA.half || Math.abs(pz) > KOTA.half ? KOTA_WORLD_HALF : KOTA.half;
+  const k = 900 / (HALF * 2);
+  const t = (v: number) => (v + HALF) * k;
+  for (const z of worldZones(world)) {
     c.fillStyle = '#' + z.color.toString(16).padStart(6, '0') + '55';
     for (const r of z.rects) c.fillRect(t(r.x - r.hx), t(r.z - r.hz), r.hx * 2 * k, r.hz * 2 * k);
   }
   c.fillStyle = '#3fb4e8';
-  c.fillRect(0, t(KOTA.riverZ0), 900, (KOTA.riverZ1 - KOTA.riverZ0) * k);
+  if (world !== 'laut') for (const w of worldLayout(world).water) c.fillRect(t(w.x0), t(w.z0), (w.x1 - w.x0) * k, (w.z1 - w.z0) * k);
   c.fillStyle = '#5d6678';
   const road = (x: number, z: number, w: number, d: number) => c.fillRect(t(x - w / 2), t(z - d / 2), Math.max(3, w * k), Math.max(3, d * k));
+  if (world === 'kota') {
   road(0, -KOTA.ring, KOTA.ring * 2, 12);
   road(0, KOTA.ring, KOTA.ring * 2, 12);
   road(-KOTA.ring, 0, 12, KOTA.ring * 2);
   road(KOTA.ring, 0, 12, KOTA.ring * 2);
-  road(0, 0, KOTA.half * 2, 12);
+  road(0, 0, HALF * 2 === KOTA.half * 2 ? KOTA.half * 2 : 1400, 12);
   road(0, 0, 12, KOTA.half * 2);
   road(0, KOTA.southZ, KOTA.half * 2, 9);
   road(-KOTA.sideX, 0, 9, KOTA.half * 2);
   road(KOTA.sideX, 0, 9, KOTA.half * 2);
+  }
   for (const p of points) {
     c.fillStyle = p.done ? '#2FBF71' : p.surprise ? '#8B5CF6' : '#FFC93C';
     c.beginPath();
     c.arc(t(p.x), t(p.z), 6, 0, Math.PI * 2);
     c.fill();
   }
+  drawLandmarks(c, t, t, HALF > KOTA.half ? 7 : 9, { labels: false, world });
   c.font = '800 20px Nunito, sans-serif';
   c.textAlign = 'center';
   c.fillStyle = '#1E2A4A';
-  for (const z of KOTA_ZONES) c.fillText(z.nama, t(z.label.x), t(z.label.z));
+  for (const z of worldZones(world)) c.fillText(z.nama, t(z.label.x), t(z.label.z));
   c.fillStyle = '#3BA7FF';
   c.strokeStyle = '#fff';
   c.lineWidth = 4;
@@ -250,7 +260,13 @@ export function showMap(px: number, pz: number, points: { x: number; z: number; 
   c.arc(t(px), t(pz), 11, 0, Math.PI * 2);
   c.fill();
   c.stroke();
-  const layer = h('div', { class: 'screen gelap', style: 'z-index:23;flex-direction:column;gap:12px' }, cv, h('div', { class: 'row' }, h('span', { class: 'chip' }, 'Kuning: soal'), h('span', { class: 'chip' }, 'Hijau: selesai'), h('span', { class: 'chip' }, 'Biru: kamu'), btn('Tutup Peta', 'putih', () => layer.remove())));
+  const close = () => {
+    layer.remove();
+    document.body.classList.remove('mv-dialog');
+  };
+  const legend = h('div', { class: 'row wrap', style: `justify-content:center;gap:6px;${landscape ? 'flex-direction:column;align-items:stretch;width:220px' : ''}` }, h('span', { class: 'chip' }, 'Bulat kuning: soal'), h('span', { class: 'chip' }, 'Hijau: selesai'), h('span', { class: 'chip' }, 'Biru: kamu'), ...LANDMARK_LEGEND.map(([col, nama]) => h('span', { class: 'chip' }, h('i', { style: `display:inline-block;width:12px;height:12px;border-radius:4px;background:${col}` }), nama)), btn('Tutup Peta', 'putih', close));
+  const layer = h('div', { class: 'screen gelap', style: `z-index:23;flex-direction:${landscape ? 'row' : 'column'};gap:12px` }, cv, legend);
+  document.body.classList.add('mv-dialog');
   ui.add(layer);
 }
 

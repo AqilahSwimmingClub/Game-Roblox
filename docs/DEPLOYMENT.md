@@ -5,6 +5,20 @@
 > Itulah penyebab pesan *"Koneksi terputus. Menyambung ulang…"*: Vercel hanya menyajikan file statis,
 > sehingga `/socket.io` dan `/api` tidak punya server. Langkah di bawah menyalakannya.
 
+## Status alamat publik (diperiksa otomatis — workflow "Uji Deployment Publik")
+
+Setiap push ke `dev/**` dan setiap pagi hari sekolah, GitHub Actions (yang punya akses internet) memeriksa:
+
+| Alamat | Hasil terakhir |
+|---|---|
+| Production `https://eduverse-web-preview.vercel.app` | `/` & `/demo.html` hidup, **`/guru/` & `/eduverse-config.js` 404** → production masih versi lama (branch demo offline). Sengaja belum diganti. |
+| Preview branch `https://eduverse-web-preview-git-de-10d7d3-aqilahswimmingclubs-projects.vercel.app` | diperiksa ketat (game, `/guru/`, demo, config) + Mode Demo dimainkan di Chromium |
+| Backend dari `eduverse-config.js` (`https://eduverse-aqilah-api.onrender.com`) | **belum aktif** — perlu Langkah 1 di bawah oleh pemilik akun |
+
+Ringkasan tiap jalannya ada di tab *Actions → Uji Deployment Publik*.
+
+**Tanpa backend internet**, kelas tetap bisa berjalan dengan **Server Sekolah** di jaringan lokal: [SERVER-SEKOLAH.md](SERVER-SEKOLAH.md).
+
 ## Arsitektur
 
 ```
@@ -23,13 +37,31 @@ Tablet guru ───────┼─ HTTPS ─► Vercel ──────�
 - Login guru memakai token **Bearer** (bukan cookie lintas situs yang sering diblokir Chrome HP). Server hanya menerima
   origin dari `CORS_ORIGINS` (HTTP & WebSocket).
 
+## Langkah 0 — Basis data Supabase (sudah disiapkan)
+
+Proyek Supabase **Game-Roblox** (paket Free) sudah berisi skema EDUVERSE (migrasi 001–005, termasuk dompet, tas & pemberian barang) dengan **RLS aktif tanpa policy**
+dan hak `anon`/`authenticated` dicabut — API publik Supabase tidak bisa membaca data apa pun; hanya server EDUVERSE yang
+terhubung langsung. Yang perlu Anda lakukan:
+
+1. Supabase Dashboard → proyek **Game-Roblox** → **Connect** → *Session pooler* → salin string koneksi
+   (`postgresql://postgres.fyketyvfskzirnfayqnx:[KATA-SANDI]@…pooler.supabase.com:5432/postgres`) dan isi kata sandi database.
+2. Isi string itu sebagai `DATABASE_URL` di Render (Langkah 1). `PGSSL=1` sudah diatur di `render.yaml`.
+   Untuk verifikasi sertifikat penuh: unduh *SSL certificate* dari Supabase (Settings → Database), isi `PGSSL_CA` dengan isinya,
+   lalu hapus `PGSSL_STRICT=0`.
+3. Server menjalankan migrasi otomatis; karena 001–005 sudah tercatat di `schema_migrations`, tidak ada yang diulang.
+4. (Opsional) Cek keamanan: jalankan `supabase/verify_rls.sql` di SQL Editor Supabase — semua tabel harus "DITOLAK" untuk `anon` & `authenticated`.
+
+Mengapa server game tidak dipindah ke Supabase Realtime/Edge Functions: lihat [KOTA-HIDUP.md → Supabase](KOTA-HIDUP.md#supabase--apa-yang-dipakai-dan-mengapa)
+(kuota Free 100 pesan/detik sudah 90% terpakai oleh 3 siswa pada 10 Hz; penilaian & validasi butuh proses otoritatif).
+
 ## Langkah 1 — Nyalakan backend di Render (±10 menit, sekali saja)
 
 1. Masuk ke <https://dashboard.render.com> (bisa daftar dengan akun GitHub yang memiliki repo ini).
 2. **New → Blueprint** → pilih repo `AqilahSwimmingClub/Game-Roblox` → pilih branch **`dev/eduverse-online-avatar20`**
    (atau `main` setelah PR digabung). Render membaca `render.yaml` dan membuat:
    - layanan web `eduverse-aqilah-api` (region Singapura, Node 22, `npm ci --include=dev && npm run build`, `npm start`)
-   - database `eduverse-db` (PostgreSQL), `DATABASE_URL` tersambung otomatis, `JWT_SECRET` dibuat acak otomatis.
+   - `JWT_SECRET` dibuat acak otomatis; **`DATABASE_URL` diisi manual** dengan string koneksi Supabase (Langkah 0) —
+     Render tidak lagi membuat database (PostgreSQL gratis Render kedaluwarsa).
 3. Saat diminta, isi **`TEACHER_REGISTRATION_CODE`** dengan kode rahasia pilihan Anda (untuk mendaftarkan guru kedua dst.).
 4. Tunggu status **Live**. Catat alamatnya, mis. `https://eduverse-aqilah-api.onrender.com`.
    Uji: buka `https://<alamat>/api/health` → harus `{"ok":true,...}`.
@@ -39,9 +71,9 @@ Migrasi database berjalan otomatis saat server mulai.
 
 ## Langkah 2 — Sambungkan Vercel ke backend
 
-1. Vercel Dashboard → proyek **eduverse-web-preview** → *Settings → Git*: pastikan *Production Branch* = branch yang
-   ingin diterbitkan (saat ini `test/eduverse-offline-demo`; ganti ke `dev/eduverse-online-avatar20` untuk menguji tahap ini,
-   atau `main` setelah PR digabung). Setiap push ke branch lain otomatis membuat *Preview Deployment*.
+1. Vercel Dashboard → proyek **eduverse-web-preview** → *Settings → Git*: *Production Branch* saat ini masih branch demo
+   offline lama. Setelah backend aktif dan uji kelas lulus, ganti ke `main` (setelah PR digabung) atau sementara
+   `dev/eduverse-living-city`. Setiap push ke branch lain otomatis membuat *Preview Deployment*.
 2. *Settings → Environment Variables* (opsional bila alamat Render = bawaan):
    `EDUVERSE_SERVER_URL = https://<alamat-render-anda>` → *Redeploy*.
 3. *Settings → Build & Development*: biarkan *Build/Install Command* default — `vercel.json` sudah mengaturnya
@@ -69,8 +101,8 @@ Migrasi database berjalan otomatis saat server mulai.
 - **Render Web Service Free tertidur** setelah ±15 menit tanpa lalu lintas; permintaan pertama membangunkannya (±1 menit).
   Game & Dashboard menampilkan pesan *"Server EDUVERSE belum bisa dihubungi … tunggu ±1 menit"* lalu tersambung sendiri.
   **Buka Dashboard Guru 2–3 menit sebelum kelas.** Untuk pemakaian rutin, gunakan paket **Starter** (tidak tertidur).
-- **Render PostgreSQL Free berlaku terbatas** (Render menghapus database gratis setelah masa berlakunya). Untuk data jangka panjang
-  pakai paket berbayar atau PostgreSQL lain (mis. Neon/Supabase) dengan mengganti `DATABASE_URL` (tambahkan `?sslmode=require`).
+- **Basis data = Supabase Free**: proyek gratis Supabase dijeda bila tidak aktif ±1 minggu (bisa diaktifkan lagi dari Dashboard),
+  batas 500 MB — cukup untuk ribuan jawaban. Tidak ada layanan berbayar yang diaktifkan.
 - Satu instance teruji menampung 500 pemain bot (lihat [LOADTEST.md](LOADTEST.md)); paket Free punya CPU/RAM lebih kecil
   dari mesin uji, jadi untuk >100 siswa serentak gunakan paket berbayar.
 

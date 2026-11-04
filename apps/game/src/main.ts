@@ -5,7 +5,7 @@
  */
 import './ui/styles.css';
 import * as THREE from 'three';
-import { EV, LIMITS, WORLDS, buildKota, buildLobby, DEFAULT_AVATAR, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
+import { EV, LIMITS, WORLDS, WORLD_ENV, OXYGEN_SECONDS, isWorldId, SHOP, CATALOG, buildKota, buildLobby, DEFAULT_AVATAR, type ItemOffer, type WalletMsg, type VehicleStateMsg, type Vendor, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
 import { Engine } from './engine/engine.js';
 import { Input } from './engine/input.js';
 import { FollowCamera } from './engine/camera.js';
@@ -19,6 +19,9 @@ import { splash, welcome, masukSesi, pilihIdentitas, menungguGuru } from './ui/i
 import { pilihAvatar } from './ui/avatarScreen.js';
 import { Hud, WaitingRoom } from './ui/hud.js';
 import { showQuestion, showFinal, podiumBanner, countdown, showMap, blocker } from './ui/play.js';
+import { Mobility, type MobilityHost, type MobilityPrompt } from './world/living/mobility.js';
+import { WalletStore } from './world/living/inventory.js';
+import { OfferStore, type OfferApi } from './world/living/offers.js';
 
 // ───────────────────────── inisialisasi ─────────────────────────
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
@@ -36,6 +39,7 @@ if (input.touch) document.body.classList.add('touch');
 const cam = new FollowCamera(engine.camera);
 const effects = new Effects(engine.scene);
 const remote = new RemotePlayers(engine.scene);
+remote.onTeleport = (x, y, z) => effects.sparkle(new THREE.Vector3(x, y + 1.2, z));
 const net = new NetClient();
 const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
@@ -52,7 +56,8 @@ let waiting: WaitingRoom | null = null;
 let questionOpen = false;
 let riding = false;
 let busy = false;
-let prompt: Prompt | null = null;
+let prompt: Prompt | MobilityPrompt | null = null;
+let mobility: Mobility | null = null;
 let ended = false;
 let orbit = true;
 
@@ -84,6 +89,7 @@ const hud = new Hud({
   },
   currentQuality: () => engine.quality,
   recover: () => {
+    if (mobility?.driving) return void mobility.act({ kind: 'turun', id: mobility.driving.id, label: '' }).then(() => player?.recover());
     player?.recover();
     riding = false;
   },
@@ -92,12 +98,14 @@ const hud = new Hud({
 });
 hud.onMapOpen = () => {
   if (!player || !stage?.points) return;
-  showMap(player.body.x, player.body.z, pointList());
+  showMap(player.body.x, player.body.z, pointList(), isWorldId(stage.scene) ? stage.scene : 'kota');
 };
 
 function pointList() {
   return (stage?.points?.list() ?? []).map((e) => ({ x: e.p.x, z: e.p.z, done: e.done, surprise: e.p.surprise }));
 }
+
+const WORLD_COLOR: Record<WorldId, string> = { kota: '#FF8A3D', hutan: '#2FBF71', laut: '#1FB6D9', angkasa: '#8B5CF6' };
 
 // ───────────────────────── adegan ─────────────────────────
 function loadStage(scene: SceneId) {
@@ -105,12 +113,24 @@ function loadStage(scene: SceneId) {
   remote.clear();
   effects.clear();
   stage = new Stage(engine, scene);
+  mobility?.setCity(stage.living, stage.living ? stage.collision : null);
   if (session) stage.setEnabledWorlds(session.worlds);
   applyQuality();
-  if (scene === 'kota') {
+  if (!isWorldId(scene)) {
     engine.scene.background = new THREE.Color(0x9fd8ff);
+    (engine.scene.fog as THREE.Fog | null)?.color.setHex(0xcfe8ff);
   }
+  oxygen = OXYGEN_SECONDS;
 }
+
+/** Sapaan & tips saat masuk tiap dunia. */
+const WELCOME: Record<WorldId, string> = {
+  kota: 'Selamat datang di Dunia Kota! Cari tanda tanya kuning.',
+  hutan: 'Selamat datang di Dunia Hutan! Jelajahi rimba, desa rumah pohon, danau, dan gua kristal.',
+  laut: 'Selamat datang di Dunia Laut! Tahan tombol SELAM untuk menyelam — perhatikan oksigenmu. Naik perahu atau kapal selam di dermaga.',
+  angkasa: 'Selamat datang di Luar Angkasa! Gravitasi rendah: lompatanmu jauh lebih tinggi. Naiki batu melayang menuju Observatorium.',
+};
+let oxygen = OXYGEN_SECONDS;
 
 async function goScene(scene: SceneId): Promise<boolean> {
   if (busy) return false;
@@ -125,7 +145,13 @@ async function goScene(scene: SceneId): Promise<boolean> {
     loadStage(scene);
     if (!player) {
       player = new LocalPlayer(engine.scene, avatarCfg, label());
+      mobility = new Mobility(engine.scene, input, cam, player, mobilityHost, input.touch);
+      mobility.setCity(stage!.living, stage!.living ? stage!.collision : null);
     }
+    if (r.vehicles && stage!.living) stage!.living.parked.setStates(r.vehicles);
+    if (mobility) mobility.hasJetpack = !!r.jetpack;
+    wallet.set(r.dompet);
+    offerStore.apply(r.offers);
     player.frozen = false;
     player.teleport(r.spawn.x, r.spawn.y, r.spawn.z, 0);
     stage!.view?.update(r.spawn.x, r.spawn.z, engine.clock.t, true);
@@ -133,7 +159,7 @@ async function goScene(scene: SceneId): Promise<boolean> {
     cam.snap();
     orbit = false;
     hud.setMode(scene === 'lobi' ? 'lobi' : scene === 'podium' ? 'none' : 'dunia');
-    if (scene === 'kota') notify('Selamat datang di Dunia Kota! Cari tanda tanya kuning.', 'misi');
+    if (isWorldId(scene)) notify(WELCOME[scene], 'misi');
     return true;
   } finally {
     busy = false;
@@ -149,6 +175,7 @@ input.onAction(() => void doAction());
 
 async function doAction() {
   if (!player || !stage || questionOpen || busy) return;
+  if (prompt && mobility && isMobilityPrompt(prompt)) return void mobility.act(prompt);
   if (riding) {
     riding = false;
     const b = stage.bus!;
@@ -180,6 +207,78 @@ async function doAction() {
   }
 }
 
+function isMobilityPrompt(p: Prompt | MobilityPrompt): p is MobilityPrompt {
+  return p.kind === 'kendaraan' || p.kind === 'turun' || p.kind === 'jetpack' || p.kind === 'pedagang';
+}
+
+const wallet = new WalletStore();
+/** Hadiah & tukar barang: semua keputusan di server; klien hanya menampilkan & mengirim jawaban. */
+const offerApi: OfferApi = {
+  // jarak sedikit lebih kecil dari batas server (6 m) karena posisi pemain lain diinterpolasi
+  friends: () => (player ? remote.near(player.body.x, player.body.z, SHOP.jarakBeri - 0.5) : []),
+  create: async (kind, toId, give, want) => {
+    const r = await net.createOffer(kind, toId, give, want);
+    if (r.ok) {
+      wallet.set(r);
+      offerStore.apply([r.offer]);
+    }
+    return r;
+  },
+  respond: async (id, accept) => {
+    const r = await net.respondOffer(id, accept);
+    if (r.ok) wallet.set(r);
+    return r;
+  },
+  cancel: async (id) => {
+    const r = await net.cancelOffer(id);
+    if (r.ok) wallet.set(r);
+    return r;
+  },
+  peek: (toId) => net.peekBag(toId),
+  allowGifts: () => session?.allowGifts !== false,
+  allowTrades: () => session?.allowTrades !== false,
+};
+const offerStore = new OfferStore(offerApi);
+/** Mode kelas: semua perubahan kendaraan/jetpack/portal/jual beli divalidasi server. */
+const mobilityHost: MobilityHost = {
+  wallet,
+  buy: async (vendorId, itemId, qty) => {
+    const r = await net.buy(vendorId, itemId, qty);
+    if (r.ok) wallet.set(r);
+    return r;
+  },
+  useItem: async (itemId) => {
+    const r = await net.useItem(itemId);
+    if (r.ok) wallet.set(r);
+    return r;
+  },
+  offers: { store: offerStore, api: offerApi },
+  enterVehicle: (id) => net.enterVehicle(id),
+  exitVehicle: (p) => net.exitVehicle(p),
+  setJetpack: (on, st) => net.setJetpack(on, st),
+  useRift: (id) => net.useRift(id),
+  startMission: (v: Vendor) => void openQuestion(v.id),
+  missionDone: (id) => !!stage?.living?.vendors.done.has(id),
+  toLobby: () => void goScene('lobi'),
+  gateWorlds: () =>
+    WORLDS.map((w) => {
+      const here = stage?.scene === w.id;
+      const open = !!session?.worlds.includes(w.id);
+      return {
+        id: w.id,
+        nama: w.nama,
+        ket: here ? 'Kamu sedang di sini' : open ? w.mapel : 'Belum dibuka gurumu',
+        color: WORLD_COLOR[w.id],
+        go: !here && open ? () => void enterWorldFlow(w.id) : null,
+      };
+    }),
+  notify: (t, k) => notify(t, k ?? 'info'),
+  setBusy: (b) => {
+    input.enabled = !b;
+    input.reset();
+  },
+};
+
 async function openQuestion(pointId: string) {
   if (!player) return;
   questionOpen = true;
@@ -199,6 +298,7 @@ async function openQuestion(pointId: string) {
       if (!res.ok) return res.error;
       if (!res.result.canRetry) {
         stage?.points?.markDone(pointId);
+        if (pointId.startsWith('V')) stage?.living?.vendors.done.add(pointId);
         lastScore.dijawab++;
         hud.setProgress(lastScore.dijawab, session?.progressTarget ?? null);
         if (res.result.correct && player) effects.sparkle(new THREE.Vector3(player.body.x, player.body.y + 2, player.body.z));
@@ -281,8 +381,26 @@ net.on<{ poin: number; benar: number; dijawab: number; rank: number | null; tota
 });
 net.on<LeaderboardRow[]>(EV.leaderboard, (rows) => hud.setLeaderboard(rows));
 net.on<{ text: string; kind?: string }>(EV.notify, (m) => notify(m.text, m.kind ?? 'info'));
-net.on<{ x: number; y: number; z: number; reason: string }>(EV.teleport, (m) => {
+net.on<VehicleStateMsg[]>(EV.vehicles, (list) => stage?.living?.parked.setStates(list));
+net.on<WalletMsg>(EV.wallet, (w) => wallet.set(w));
+net.on<ItemOffer[]>(EV.offers, (list) => offerStore.apply(list));
+net.on<{ dari: string; itemId: string; qty: number }>(EV.gift, (g) => {
+  const it = CATALOG[g.itemId];
+  if (!it) return;
+  giftsReceived++;
+  wallet.addGift({ dari: g.dari, itemId: g.itemId, qty: g.qty });
+  // teks pemberitahuan sudah ditampilkan alur TERIMA/TOLAK; di sini cukup tanda yang bertahan (lencana 🎁 + riwayat) & kilau
+  if (player) effects.sparkle(new THREE.Vector3(player.body.x, player.body.y + 2, player.body.z));
+});
+let giftsReceived = 0;
+net.on<{ x: number; y: number; z: number; reason: string; mode?: string }>(EV.teleport, (m) => {
   riding = false;
+  if (mobility?.driving && m.mode !== 'jalan' && m.reason === 'koreksi') {
+    // koreksi kecil dari server saat berkendara: geser kendaraan ke posisi sah terakhir
+    Object.assign(mobility.driving.body, { x: m.x, y: m.y, z: m.z, speed: 0 });
+    return;
+  }
+  if (mobility?.active && m.mode === 'jalan') mobility.forceWalk();
   player?.teleport(m.x, m.y, m.z);
   if (m.reason === 'pulih') notify('Hup! Kamu kembali ke tempat aman.', 'info');
 });
@@ -367,10 +485,17 @@ net.onReconnect(async () => {
   me = r.me;
   notify('Tersambung kembali!', 'sukses');
   if (stage) {
+    // Server melepas kendaraan saat koneksi putus (kendaraan diparkir di posisi terakhir yang sah)
+    mobility?.forceWalk();
     const res = await net.enter(stage.scene);
     if (res.ok && player) {
       player.teleport(res.spawn.x, res.spawn.y, res.spawn.z);
       if (res.points) stage.setPoints(res.points, res.done);
+      if (res.vehicles) stage.living?.parked.setStates(res.vehicles);
+      if (mobility) mobility.hasJetpack = !!res.jetpack;
+      wallet.set(res.dompet);
+      offerStore.clearAll();
+      offerStore.apply(res.offers);
     }
   }
 });
@@ -406,6 +531,9 @@ engine.onFrame((dt, t) => {
   cam.distance = Math.max(cam.minDist, Math.min(cam.maxDist, cam.distance + input.zoom));
   input.zoom = 0;
 
+  // Mode uji: tahan tombol SELAM / LOMPAT lewat input yang sama dengan pemain sungguhan
+  if (debug && debugHold.dive) input.dive = true;
+  if (debug && debugHold.jump) input.jump = true;
   // Autopilot khusus mode uji (?debug=1): berjalan biasa ke target lewat input yang sama — server tetap memvalidasi.
   if (debug && autopilot) {
     const dx = autopilot.x - player.body.x;
@@ -430,8 +558,31 @@ engine.onFrame((dt, t) => {
       input.jump = false;
       void doAction();
     }
-  } else player.update(dt, input, cam, stage.collision);
-  player.lowGravity = false;
+  } else if (!(mobility && mobility.update(dt, t))) player.update(dt, input, cam, stage.collision);
+  player.lowGravity = isWorldId(stage.scene) && WORLD_ENV[stage.scene].lowGravity;
+  // Dunia Laut: oksigen berkurang saat kepala di bawah air (kecuali di kapal selam); habis → otomatis naik ke permukaan
+  if (isWorldId(stage.scene) && WORLD_ENV[stage.scene].oxygen && !mobility?.driving) {
+    const under = player.body.submerged >= 0.98;
+    document.body.classList.toggle('bawah-air', under);
+    // tampilan bawah air: langit & kabut biru laut
+    const sky = under ? 0x1f6f9f : WORLD_ENV[stage.scene].sky;
+    const bg = engine.scene.background as THREE.Color | null;
+    if (bg && bg.getHex() !== sky) {
+      bg.setHex(sky);
+      (engine.scene.fog as THREE.Fog | null)?.color.setHex(under ? 0x1f6f9f : WORLD_ENV[stage.scene].fog);
+    }
+    oxygen = under ? Math.max(0, oxygen - dt) : Math.min(OXYGEN_SECONDS, oxygen + dt * 6);
+    hud.setOxygen(under || oxygen < OXYGEN_SECONDS ? oxygen / OXYGEN_SECONDS : null);
+    if (under && oxygen <= 0) {
+      const w = stage.collision.waterAt(player.body.x, player.body.z);
+      player.teleport(player.body.x, (w?.surface ?? 0) - 1.2, player.body.z, player.ry);
+      oxygen = OXYGEN_SECONDS * 0.3;
+      notify('Oksigen habis! Kamu dibawa naik ke permukaan. Ambil napas dulu ya.', 'peringatan');
+    }
+  } else {
+    hud.setOxygen(null);
+    document.body.classList.remove('bawah-air');
+  }
 
   const b = player.body;
   if (b.y < -30) {
@@ -441,13 +592,16 @@ engine.onFrame((dt, t) => {
   if (podiumCam) {
     engine.camera.position.set(Math.sin(t * 0.2) * 3, 4.6, 12);
     engine.camera.lookAt(0, 2.6, -6);
-  } else cam.update(dt, b.x, b.y, b.z, stage.collision);
+  } else {
+    const ct = mobility?.camTarget() ?? b;
+    cam.update(dt, ct.x, ct.y, ct.z, stage.collision);
+  }
   engine.followSun(b.x, b.y, b.z);
   stage.update(dt, t, b.x, b.z, net.serverNow());
   remote.update(dt, engine.camera.position);
 
   // Tombol interaksi hanya muncul saat dekat objek
-  prompt = questionOpen || ended ? null : riding ? { kind: 'bus', id: 'bus', label: 'Turun Bus' } : stage.nearestPrompt(b.x, b.y, b.z);
+  prompt = questionOpen || ended ? null : riding ? { kind: 'bus', id: 'bus', label: 'Turun Bus' } : mobility?.driving || mobility?.prompt?.kind === 'pedagang' ? mobility.prompt : (stage.nearestPrompt(b.x, b.y, b.z) ?? mobility?.prompt ?? null);
   const key = prompt ? `${prompt.kind}:${prompt.id}` : '';
   if (key !== lastPromptKey) {
     lastPromptKey = key;
@@ -458,21 +612,38 @@ engine.onFrame((dt, t) => {
   sendAcc += dt;
   if (sendAcc >= 1 / LIMITS.stateHz) {
     sendAcc = 0;
-    net.sendState({ scene: stage.scene, x: round(b.x), y: round(b.y), z: round(b.z), ry: round(player.ry), anim: player.anim, riding });
+    net.sendState({ scene: stage.scene, x: round(b.x), y: round(b.y), z: round(b.z), ry: round(player.ry), anim: player.anim, riding, ...(mobility?.netExtras() ?? {}) });
   }
   hud.updateTimer(session, net.serverNow());
-  if (stage.scene === 'kota') hud.drawMinimap(b.x, b.z, cam.yaw, player.ry, pointList(), remote.positions());
+  if (isWorldId(stage.scene)) hud.drawMinimap(b.x, b.z, cam.yaw, player.ry, pointList(), remote.positions(), stage.scene);
   if (debug) debugEl.textContent = `FPS ${engine.fps.toFixed(0)} · ${engine.level} · chunk ${JSON.stringify(stage.view?.stats())} · pemain lain ${remote.count()} · draw ${engine.renderer.info.render.calls}`;
   exposeState();
 });
 let autopilot: { x: number; z: number } | null = null;
+const debugHold = { dive: false, jump: false };
 if (debug) {
   (window as unknown as { __eduDebug: unknown }).__eduDebug = {
     goTo: (x: number, z: number) => void (autopilot = { x, z }),
-    stop: () => void (autopilot = null),
+    stop: () => {
+      autopilot = null;
+      input.moveX = input.moveY = 0;
+      input.jump = false;
+    },
     walking: () => autopilot !== null,
     openPoints: () => (stage?.points?.list() ?? []).filter((e) => !e.done && !e.p.hidden).map((e) => ({ id: e.p.id, x: e.p.x, y: e.p.y, z: e.p.z, object: e.p.object })),
     action: () => void doAction(),
+    control: (c: Record<string, boolean>) => mobility?.setControl(c),
+    /** Uji keamanan (mode ?debug=1): kirim permintaan mentah — server tetap memvalidasi semuanya. */
+    raw: { enterVehicle: (id: string) => net.enterVehicle(id), useRift: (id: string) => net.useRift(id), setJetpack: (on: boolean, st?: string) => net.setJetpack(on, st), buy: (v: string, i: string, q: number) => mobilityHost.buy(v, i, q), useItem: (i: string) => mobilityHost.useItem(i), give: (to: string, i: string, q: number) => offerApi.create('hadiah', to, { itemId: i, qty: q }, null), respond: (id: string, a: boolean) => offerApi.respond(id, a), cancel: (id: string) => offerApi.cancel(id) },
+    friends: (r = 50) => (player ? remote.near(player.body.x, player.body.z, r) : []),
+    vendors: () => stage?.living?.layout.vendors.map((v) => ({ id: v.id, x: v.x, y: v.y, z: v.z })) ?? [],
+    rifts: () => stage?.living?.layout.rifts.map((r) => ({ id: r.id, x: r.x, y: r.y, z: r.z, to: r.to })) ?? [],
+    exitVehicle: () => (mobility?.driving ? mobility.act({ kind: 'turun', id: mobility.driving.id, label: '' }) : null),
+    hold: (k: Partial<typeof debugHold>) => {
+      Object.assign(debugHold, k);
+      if (!debugHold.dive) input.dive = false;
+      if (!debugHold.jump) input.jump = false;
+    },
   };
 }
 const round = (v: number) => Math.round(v * 100) / 100;
@@ -483,6 +654,7 @@ if (debug) document.body.appendChild(debugEl);
 function exposeState() {
   (window as unknown as { __edu: unknown }).__edu = {
     scene: stage?.scene ?? null,
+    env: { lowGravity: !!player?.lowGravity, oxygen: round(oxygen), oxygenBar: hud.oxygenShown, swimming: !!player?.body.swimming, submerged: player ? round(player.body.submerged) : 0, sky: stage ? (engine.scene.background as THREE.Color | null)?.getHex() ?? null : null },
     pos: player ? { x: player.body.x, y: player.body.y, z: player.body.z } : null,
     remotes: remote.count(),
     remoteChars: remote.characters(),
@@ -493,6 +665,13 @@ function exposeState() {
     status: session?.status ?? null,
     prompt: prompt?.kind ?? null,
     fps: engine.fps,
+    mobility: mobility?.snapshot() ?? null,
+    traffic: stage?.living?.traffic.snapshot() ?? null,
+    myId: net.socket.id ?? null,
+    remoteModes: remote.modes(),
+    giftsReceived,
+    offers: { pending: [...offerStore.pending.values()].map((o) => ({ id: o.id, kind: o.kind, dari: o.dari.nama, ke: o.ke.nama, give: o.give, want: o.want, status: o.status })), ...offerStore.stats },
+    vehicles: stage?.living?.parked.all().map((v) => ({ id: v.id, driver: v.driver ? 'ya' : null, x: Math.round(v.x), z: Math.round(v.z) })) ?? [],
   };
 }
 
@@ -552,6 +731,8 @@ async function boot() {
     w.close();
   }
   avatarCfg = me.avatar ?? avatarCfg;
+  wallet.set(me.dompet);
+  offerStore.myAbsen = me.absen;
   hud.setProfile(me.nama, me.absen);
   lastScore = { poin: me.poin ?? 0, rank: null, total: 0, dijawab: me.dijawab ?? 0 };
   hud.setScore(lastScore.poin, null, 0);

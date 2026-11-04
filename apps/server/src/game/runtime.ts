@@ -13,10 +13,13 @@ import {
   LIMITS,
   DEFAULT_SETTINGS,
   QUESTION_TYPE_LABEL,
-  buildKota,
   buildLobby,
-  zoneAt,
-  KOTA_ZONES,
+  worldLayout,
+  WORLD_ENV,
+  zoneIn,
+  findZone,
+  WATER_VEHICLES,
+  QUESTION_SOURCE_LABEL,
   checkAnswer,
   parseAnswer,
   computeScore,
@@ -25,6 +28,27 @@ import {
   DEFAULT_AVATAR,
   isWorldId,
   WORLDS,
+  MODE_CODE,
+  MODE_LIMITS,
+  VEHICLE_SPEC,
+  KOTA_WORLD_HALF,
+  riftExit,
+  SHOP,
+  CATALOG,
+  checkBuy,
+  parseOffer,
+  canAccept,
+  OFFER,
+  sanitizeBag,
+  isConsumable,
+  bagCount,
+  type Bag,
+  type ItemOffer,
+  type WalletMsg,
+  type MoveMode,
+  type VehicleKind,
+  type VehicleStateMsg,
+  type CompactPlayer,
   type AvatarConfig,
   type SessionSettings,
   type SessionStatus,
@@ -42,7 +66,7 @@ import {
   type PodiumEntry,
   type SpawnMarker,
 } from '@eduverse/shared';
-import { query } from '../db/pool.js';
+import { query, tx } from '../db/pool.js';
 import { loadQuestionPage } from '../questionsRepo.js';
 
 export const hashToken = (t: string) => crypto.createHash('sha256').update(t).digest('hex');
@@ -76,6 +100,8 @@ interface RosterRow {
   last_correct_at: Date | null;
   preset: boolean;
   kicked: boolean;
+  wallet?: number;
+  inventory?: unknown;
 }
 
 export interface Student {
@@ -99,6 +125,11 @@ export interface Student {
   lastScene: SceneId;
   lastPos: { x: number; y: number; z: number } | null;
   ready: boolean;
+  /** Dompet Rupiah virtual & tas (tidak memengaruhi poin). */
+  wallet: number;
+  bag: Bag;
+  buyTimes: number[];
+  giveTimes: number[];
 }
 
 interface Pending {
@@ -128,6 +159,16 @@ interface Player {
   emote: number;
   emoteUntil: number;
   riding: boolean;
+  /** Mode gerak yang dicatat SERVER (bukan klaim klien): jalan, kendaraan, jetpack. */
+  mode: MoveMode;
+  vehicleId: string | null;
+  vehicleColor: number;
+  hasJetpack: boolean;
+  /** Kecepatan maks mode sebelumnya tetap berlaku sebentar setelah ganti mode (mis. turun dari motor yang masih meluncur). */
+  graceSpeed: number;
+  graceUntil: number;
+  tp: number;
+  lastRiftAt: number;
   lastStateAt: number;
   violations: number;
   known: Set<string>; // pemain lain yang metadatanya sudah dikirim
@@ -144,6 +185,11 @@ interface WorldPoints {
 }
 
 const rnd = (n: number) => crypto.randomInt(n);
+/** Batas waktu permintaan hadiah/tukar (bawaan 60 dtk). OFFER_TTL_MS hanya untuk uji otomatis (3–120 dtk). */
+const OFFER_TTL = (() => {
+  const v = Number(process.env.OFFER_TTL_MS);
+  return Number.isFinite(v) && v > 0 ? Math.max(3_000, Math.min(120_000, v)) : OFFER.ttlMs;
+})();
 function shuffled(n: number): number[] {
   const a = Array.from({ length: n }, (_, i) => i);
   for (let i = n - 1; i > 0; i--) {
@@ -218,6 +264,10 @@ export class SessionRuntime {
       socketId: null,
       lastScene: 'lobi',
       lastPos: null,
+      wallet: typeof r.wallet === 'number' ? r.wallet : SHOP.saldoAwal,
+      bag: sanitizeBag(r.inventory),
+      buyTimes: [],
+      giveTimes: [],
       ready: false,
     };
   }
@@ -246,6 +296,8 @@ export class SessionRuntime {
       remainingMs: this.status === 'jeda' ? this.pausedRemainingMs : this.endsAt ? Math.max(0, this.endsAt - Date.now()) : null,
       serverNow: Date.now(),
       showLeaderboard: this.settings.showLeaderboard,
+      allowGifts: this.settings.allowGifts !== false,
+      allowTrades: this.settings.allowTrades !== false,
       progressTarget: this.settings.questionMode === 'jumlah' ? this.settings.questionCount : null,
     };
   }
@@ -285,6 +337,14 @@ export class SessionRuntime {
       emote: -1,
       emoteUntil: 0,
       riding: false,
+      mode: 'jalan',
+      vehicleId: null,
+      vehicleColor: 0,
+      hasJetpack: false,
+      graceSpeed: 0,
+      graceUntil: 0,
+      tp: 0,
+      lastRiftAt: 0,
       lastStateAt: Date.now(),
       violations: 0,
       known: new Set(),
@@ -445,6 +505,7 @@ export class SessionRuntime {
   detach(socket: Socket) {
     const p = this.players.get(socket.id);
     if (!p) return;
+    this.releaseVehicle(p);
     if (p.student && p.student.socketId === socket.id) {
       p.student.socketId = null;
       p.student.lastScene = p.scene;
@@ -457,7 +518,7 @@ export class SessionRuntime {
 
   // ───────────────────────────── adegan & gerak ─────────────────────────────
 
-  enterScene(socket: Socket, scene: SceneId): { ok: true; spawn: { x: number; y: number; z: number }; points?: ActivePoint[]; done?: string[] } | { ok: false; error: string } {
+  enterScene(socket: Socket, scene: SceneId): { ok: true; spawn: { x: number; y: number; z: number }; points?: ActivePoint[]; done?: string[]; vehicles?: VehicleStateMsg[]; jetpack?: boolean; dompet?: WalletMsg; offers?: ItemOffer[] } | { ok: false; error: string } {
     const p = this.players.get(socket.id);
     if (!p?.student) return { ok: false, error: 'Pilih identitas dahulu.' };
     if (!p.student.approved) return { ok: false, error: 'Menunggu persetujuan guru.' };
@@ -468,6 +529,10 @@ export class SessionRuntime {
     }
     if (p.scene !== 'lobi' && p.scene !== 'podium') void socket.leave(this.worldRoom(p.scene));
     if (p.pending) p.pending = null;
+    this.releaseVehicle(p);
+    p.mode = 'jalan';
+    p.riding = false;
+    p.tp++;
     const prev = p.student.lastScene === scene ? p.student.lastPos : null;
     p.scene = scene;
     p.known.clear();
@@ -481,7 +546,10 @@ export class SessionRuntime {
     let spawn: { x: number; y: number; z: number };
     if (scene === 'lobi') spawn = { ...buildLobby().spawnPoint, x: (rnd(80) - 40) / 10 };
     else if (scene === 'podium') spawn = { x: (rnd(200) - 100) / 10, y: 0.2, z: 14 };
-    else spawn = prev ?? { ...buildKota().spawnPoint, x: (rnd(120) - 60) / 10 };
+    else {
+      const sp = worldLayout(scene).spawnPoint;
+      spawn = prev ?? { ...sp, x: sp.x + (rnd(120) - 60) / 10 };
+    }
     p.x = spawn.x;
     p.y = spawn.y;
     p.z = spawn.z;
@@ -491,7 +559,8 @@ export class SessionRuntime {
     if (isWorldId(scene)) {
       void socket.join(this.worldRoom(scene));
       const w = this.ensureWorld(scene);
-      return { ok: true, spawn, points: this.pointList(w), done: this.doneList(p.student) };
+      setTimeout(() => this.emitVehicles(scene, p.instance), 0);
+      return { ok: true, spawn, points: this.pointList(w), done: this.doneList(p.student), vehicles: this.vehicleList(scene, p.instance), jetpack: p.hasJetpack, dompet: this.walletOf(p.student), offers: this.pendingOffersFor(p.student) };
     }
     return { ok: true, spawn };
   }
@@ -509,21 +578,30 @@ export class SessionRuntime {
     if (m.scene !== p.scene) return; // paket basi dari adegan sebelumnya
     const now = Date.now();
     const dt = Math.min(2, Math.max(0.05, (now - p.lastStateAt) / 1000));
-    const riding = m.riding === true;
-    const maxSpeed = riding ? LIMITS.maxBusSpeed : LIMITS.maxRunSpeed;
+    // Penumpang Bus Kota hanya bisa diklaim saat berjalan kaki; kendaraan & jetpack dicatat server lewat event tersendiri.
+    const riding = m.riding === true && p.mode === 'jalan';
+    const mode: MoveMode = riding ? 'penumpang' : p.mode;
+    const lim = MODE_LIMITS[mode];
+    const maxSpeed = Math.max(lim.maxSpeed, now < p.graceUntil ? p.graceSpeed : 0);
     const horiz = Math.hypot(x - p.x, z - p.z);
-    const half = p.scene === 'lobi' ? 46 : p.scene === 'podium' ? 40 : 610;
+    const half = p.scene === 'lobi' ? 46 : p.scene === 'podium' ? 40 : isWorldId(p.scene) ? WORLD_ENV[p.scene].half + 10 : KOTA_WORLD_HALF + 10;
     const tooFast = horiz > maxSpeed * dt * 1.35 + 1.5;
-    const outside = Math.abs(x) > half || Math.abs(z) > half || y > 260;
+    const outside = Math.abs(x) > half || Math.abs(z) > half || y > lim.maxY + 5;
     const fell = y < -40;
     if (tooFast || outside || fell) {
       p.violations++;
       const back = fell || outside ? this.safeSpawn(p.scene) : { x: p.x, y: p.y, z: p.z };
+      if (fell || outside) {
+        // jatuh / keluar batas: lepaskan kendaraan agar tidak "terbawa" ke titik aman
+        this.releaseVehicle(p);
+        p.mode = 'jalan';
+      }
       p.x = back.x;
       p.y = back.y;
       p.z = back.z;
+      p.tp++;
       p.lastStateAt = now;
-      socket.emit(EV.teleport, { ...back, reason: fell || outside ? 'pulih' : 'koreksi' });
+      socket.emit(EV.teleport, { ...back, reason: fell || outside ? 'pulih' : 'koreksi', mode: p.mode });
       return;
     }
     p.x = x;
@@ -535,10 +613,493 @@ export class SessionRuntime {
     p.lastStateAt = now;
   }
 
+  // ───────────────────────────── kendaraan, jetpack, lubang dimensi ─────────────────────────────
+
+  /** Kendaraan per dunia per instance (kunci "dunia:instance"). */
+  private vehicleSets = new Map<string, Map<string, VehicleStateMsg & { idleSince: number }>>();
+
+  private vehiclesOf(world: SceneId, instance: number) {
+    const key = `${world}:${instance}`;
+    let set = this.vehicleSets.get(key);
+    if (!set) {
+      set = new Map();
+      if (isWorldId(world))
+        for (const v of worldLayout(world).living.vehicles) set.set(v.id, { id: v.id, kind: v.kind, x: v.x, y: v.y, z: v.z, heading: v.heading, color: v.color, driver: null, idleSince: Date.now() });
+      this.vehicleSets.set(key, set);
+    }
+    return set;
+  }
+
+  vehicleList(world: SceneId, instance: number): VehicleStateMsg[] {
+    return [...this.vehiclesOf(world, instance).values()].map(({ idleSince: _i, ...v }) => v);
+  }
+
+  private emitVehicles(world: SceneId, instance: number) {
+    if (!isWorldId(world)) return;
+    const list = this.vehicleList(world, instance);
+    for (const o of this.players.values()) if (o.scene === world && o.instance === instance) o.socket.emit(EV.vehicles, list);
+  }
+
+  /** Lepaskan kendaraan yang sedang dikendarai: kendaraan tetap diparkir di posisi terakhir yang sah. */
+  private releaseVehicle(p: Player) {
+    if (!p.vehicleId) return;
+    const v = this.vehiclesOf(p.scene, p.instance).get(p.vehicleId);
+    if (v && v.driver === p.socket.id) {
+      v.driver = null;
+      v.x = p.x;
+      // kendaraan air tetap di air (kapal selam di bawah permukaan); pesawat di darat; lainnya di atas tanah
+      v.y = v.kind === 'pesawat' ? Math.min(p.y, 0.05) : WATER_VEHICLES.includes(v.kind as VehicleKind) ? Math.min(0, p.y) : Math.max(0, p.y);
+      v.z = p.z;
+      v.heading = p.ry;
+      v.idleSince = Date.now();
+    }
+    p.graceSpeed = MODE_LIMITS[p.mode].maxSpeed;
+    p.graceUntil = Date.now() + 2500;
+    p.vehicleId = null;
+    p.mode = 'jalan';
+    this.emitVehicles(p.scene, p.instance);
+  }
+
+  enterVehicle(socket: Socket, id: unknown): { ok: true; vehicle: VehicleStateMsg } | { ok: false; error: string } {
+    const p = this.players.get(socket.id);
+    if (!p?.student || !isWorldId(p.scene)) return { ok: false, error: 'Tidak ada kendaraan di sini.' };
+    if (p.mode !== 'jalan' || p.riding) return { ok: false, error: 'Turun dulu dari kendaraanmu.' };
+    if (p.pending) return { ok: false, error: 'Selesaikan soal dulu.' };
+    const v = typeof id === 'string' ? this.vehiclesOf(p.scene, p.instance).get(id) : undefined;
+    if (!v) return { ok: false, error: 'Kendaraan tidak ditemukan.' };
+    if (v.driver && v.driver !== socket.id) {
+      if (this.players.has(v.driver)) return { ok: false, error: 'Kendaraan ini sedang dipakai teman.' };
+      v.driver = null;
+    }
+    const spec = VEHICLE_SPEC[v.kind as VehicleKind];
+    if (Math.hypot(p.x - v.x, p.z - v.z) > spec.interact + 2 || Math.abs(p.y - v.y) > 3) return { ok: false, error: 'Mendekatlah ke kendaraan.' };
+    v.driver = socket.id;
+    p.vehicleId = v.id;
+    p.vehicleColor = v.color;
+    p.mode = v.kind as MoveMode;
+    p.x = v.x;
+    p.y = v.y;
+    p.z = v.z;
+    p.ry = v.heading;
+    p.lastStateAt = Date.now();
+    this.emitVehicles(p.scene, p.instance);
+    const { idleSince: _i, ...out } = v;
+    return { ok: true, vehicle: out };
+  }
+
+  exitVehicle(socket: Socket, raw: unknown): { ok: true; x: number; y: number; z: number } | { ok: false; error: string } {
+    const p = this.players.get(socket.id);
+    if (!p?.student) return { ok: false, error: 'Belum bergabung.' };
+    if (!p.vehicleId) return { ok: true, x: p.x, y: p.y, z: p.z };
+    const m = (raw ?? {}) as Record<string, unknown>;
+    const n = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+    let x = n(m.x, p.x);
+    let y = n(m.y, p.y);
+    let z = n(m.z, p.z);
+    // Titik turun harus di samping kendaraan (≤ 8 m) — selain itu pakai posisi kendaraan.
+    if (Math.hypot(x - p.x, z - p.z) > 8 || Math.abs(y - p.y) > 6) {
+      x = p.x;
+      y = p.y + 0.5;
+      z = p.z;
+    }
+    this.releaseVehicle(p);
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    p.lastStateAt = Date.now();
+    return { ok: true, x, y, z };
+  }
+
+  setJetpack(socket: Socket, raw: unknown): { ok: true; on: boolean } | { ok: false; error: string } {
+    const p = this.players.get(socket.id);
+    if (!p?.student || !isWorldId(p.scene)) return { ok: false, error: 'Jetpack tidak tersedia di sini.' };
+    const m = (raw ?? {}) as { on?: unknown; stationId?: unknown };
+    if (m.on === true) {
+      if (p.vehicleId) return { ok: false, error: 'Turun dari kendaraan dulu.' };
+      if (!p.hasJetpack) {
+        const st = worldLayout(p.scene).living.jetpacks.find((j) => j.id === m.stationId);
+        if (!st || Math.hypot(p.x - st.x, p.z - st.z) > 5 || Math.abs(p.y - st.y) > 4) return { ok: false, error: 'Ambil jetpack di Stasiun Jetpack.' };
+        p.hasJetpack = true;
+      }
+      p.mode = 'jetpack';
+      return { ok: true, on: true };
+    }
+    if (p.mode === 'jetpack') {
+      p.mode = 'jalan';
+      p.graceSpeed = MODE_LIMITS.jetpack.maxSpeed;
+      p.graceUntil = Date.now() + 2500;
+    }
+    return { ok: true, on: false };
+  }
+
+  useRift(socket: Socket, riftId: unknown): { ok: true; target: { x: number; y: number; z: number; ry: number }; nama: string } | { ok: false; error: string } {
+    const p = this.players.get(socket.id);
+    if (!p?.student || !isWorldId(p.scene)) return { ok: false, error: 'Lubang dimensi tidak aktif di sini.' };
+    const rifts = worldLayout(p.scene).living.rifts;
+    const r = rifts.find((x) => x.id === riftId);
+    if (!r) return { ok: false, error: 'Lubang dimensi tidak dikenal.' };
+    if (p.vehicleId) return { ok: false, error: 'Turun dari kendaraan sebelum masuk lubang dimensi.' };
+    if (p.pending) return { ok: false, error: 'Selesaikan soal dulu.' };
+    if (Math.hypot(p.x - r.x, p.z - r.z) > 4 || Math.abs(p.y - r.y) > 4) return { ok: false, error: 'Mendekatlah ke lubang dimensi.' };
+    const now = Date.now();
+    if (now - p.lastRiftAt < 2500) return { ok: false, error: 'Lubang dimensi sedang mengisi energi…' };
+    const dest = rifts.find((x) => x.id === r.to);
+    if (!dest) return { ok: false, error: 'Tujuan belum tersedia.' };
+    const out = riftExit(dest);
+    p.lastRiftAt = now;
+    p.x = out.x;
+    p.y = out.y;
+    p.z = out.z;
+    p.ry = out.ry;
+    p.tp++;
+    p.lastStateAt = now;
+    return { ok: true, target: out, nama: dest.nama };
+  }
+
+  // ───────────────────────────── toko & tas ─────────────────────────────
+
+  walletOf(s: Student): WalletMsg {
+    return { saldo: s.wallet, tas: { ...s.bag } };
+  }
+
+  /** Beli barang dari pedagang: dekat pedagang, barang dijual pedagang itu, saldo cukup, tas muat. */
+  async buy(socket: Socket, raw: unknown): Promise<({ ok: true; total: number; sisa: number; itemId: string; qty: number } & WalletMsg) | { ok: false; error: string; kurang?: number }> {
+    const p = this.players.get(socket.id);
+    const s = p?.student;
+    if (!p || !s || !isWorldId(p.scene)) return { ok: false, error: 'Tidak ada toko di sini.' };
+    if (this.status === 'selesai') return { ok: false, error: 'Permainan sudah selesai.' };
+    const m = (raw ?? {}) as { vendorId?: unknown; itemId?: unknown; qty?: unknown };
+    const v = worldLayout(p.scene).living.vendors.find((x) => x.id === m.vendorId);
+    if (!v || !v.items.length) return { ok: false, error: 'Pedagang ini tidak berjualan.' };
+    if (Math.hypot(p.x - v.x, p.z - v.z) > SHOP.jarakBeli || Math.abs(p.y - v.y) > 3) return { ok: false, error: 'Mendekatlah ke pedagang untuk membeli.' };
+    const now = Date.now();
+    s.buyTimes = s.buyTimes.filter((t) => now - t < 60_000);
+    if (s.buyTimes.length >= SHOP.beliPerMenit) return { ok: false, error: 'Pelan-pelan belanjanya ya!' };
+    const chk = checkBuy(s.wallet, s.bag, v.items, m.itemId, m.qty);
+    if (!chk.ok) return chk;
+    const itemId = m.itemId as string;
+    const qty = m.qty as number;
+    s.buyTimes.push(now);
+    // Ubah status di memori SEBELUM await → dua pembelian serentak tidak bisa memakai saldo yang sama.
+    const before = { wallet: s.wallet, bag: { ...s.bag } };
+    s.wallet = chk.sisa;
+    s.bag[itemId] = (s.bag[itemId] ?? 0) + qty;
+    try {
+      await tx(async (c) => {
+        await c.query('UPDATE session_roster SET wallet = $2, inventory = $3 WHERE id = $1', [s.rosterId, s.wallet, JSON.stringify(s.bag)]);
+        await c.query(
+          'INSERT INTO purchases (session_id, roster_id, vendor_id, item_id, qty, unit_price, total, wallet_after) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',
+          [this.id, s.rosterId, v.id, itemId, qty, CATALOG[itemId]!.harga, chk.total, s.wallet],
+        );
+      });
+    } catch (e) {
+      s.wallet = before.wallet;
+      s.bag = before.bag;
+      throw e;
+    }
+    this.pushTeacher();
+    return { ok: true, total: chk.total, sisa: chk.sisa, itemId, qty, ...this.walletOf(s) };
+  }
+
+  /** Pakai makanan/minuman/buah dari tas (efek: energi jetpack penuh di klien). */
+  async useItem(socket: Socket, raw: unknown): Promise<({ ok: true; itemId: string; efek: 'energi' } & WalletMsg) | { ok: false; error: string }> {
+    const s = this.players.get(socket.id)?.student;
+    if (!s) return { ok: false, error: 'Belum bergabung.' };
+    const itemId = (raw as { itemId?: unknown } | null)?.itemId;
+    const it = typeof itemId === 'string' ? CATALOG[itemId] : undefined;
+    if (!it || !(s.bag[it.id]! > 0)) return { ok: false, error: 'Barang ini tidak ada di tasmu.' };
+    if (!isConsumable(it.kategori)) return { ok: false, error: `${it.nama} disimpan sebagai koleksi.` };
+    const before = { ...s.bag };
+    s.bag[it.id]!--;
+    if (!s.bag[it.id]) delete s.bag[it.id];
+    try {
+      await query('UPDATE session_roster SET inventory = $2 WHERE id = $1', [s.rosterId, JSON.stringify(s.bag)]);
+    } catch (e) {
+      s.bag = before;
+      throw e;
+    }
+    return { ok: true, itemId: it.id, efek: 'energi', ...this.walletOf(s) };
+  }
+
+  // ───────────────────────────── hadiah & tukar barang (perlu persetujuan) ─────────────────────────────
+
+  /** Permintaan yang masih menunggu (+ yang baru selesai, untuk dikirim ulang ke klien). Sumber kebenaran: memori; DB untuk ketahanan. */
+  private offers = new Map<string, ItemOffer & { fromRoster: string; toRoster: string }>();
+  private pairCooldown = new Map<string, number>();
+
+  private studentByRoster(id: string): Student | undefined {
+    for (const st of this.students.values()) if (st.rosterId === id) return st;
+    return undefined;
+  }
+
+  private playerOf(s: Student | undefined): Player | undefined {
+    return s?.socketId ? this.players.get(s.socketId) : undefined;
+  }
+
+  private offerView(o: ItemOffer & { fromRoster?: string; toRoster?: string }): ItemOffer {
+    const { fromRoster: _f, toRoster: _t, ...v } = o;
+    return { ...v, dari: { ...v.dari }, ke: { ...v.ke }, give: { ...v.give }, want: v.want ? { ...v.want } : null };
+  }
+
+  /** Kirim status permintaan ke pemberi & penerima yang sedang online. */
+  private emitOffer(o: ItemOffer & { fromRoster: string; toRoster: string }) {
+    const view = this.offerView(o);
+    for (const r of [o.fromRoster, o.toRoster]) this.playerOf(this.studentByRoster(r))?.socket.emit(EV.offers, [view]);
+  }
+
+  /** Permintaan menunggu yang melibatkan siswa ini (dikirim saat masuk/tersambung ulang → pop-up muncul lagi). */
+  pendingOffersFor(s: Student): ItemOffer[] {
+    return [...this.offers.values()].filter((o) => o.status === 'menunggu' && (o.fromRoster === s.rosterId || o.toRoster === s.rosterId)).map((o) => this.offerView(o));
+  }
+
+  /** Buat permintaan hadiah/tukar: barang pemberi DITAHAN (escrow) sampai dijawab. */
+  async createOffer(socket: Socket, raw: unknown): Promise<({ ok: true; offer: ItemOffer } & WalletMsg) | { ok: false; error: string }> {
+    const p = this.players.get(socket.id);
+    const s = p?.student;
+    if (!p || !s || !isWorldId(p.scene)) return { ok: false, error: 'Memberi & menukar barang hanya bisa di dalam dunia permainan.' };
+    if (this.status === 'selesai') return { ok: false, error: 'Permainan sudah selesai.' };
+    const m = (raw ?? {}) as { toId?: unknown; kind?: unknown };
+    const kind = m.kind === 'tukar' ? 'tukar' : 'hadiah';
+    if (kind === 'hadiah' && !this.settings.allowGifts) return { ok: false, error: 'Fitur memberi barang sedang dinonaktifkan guru.' };
+    if (kind === 'tukar' && !this.settings.allowTrades) return { ok: false, error: 'Fitur tukar barang sedang dinonaktifkan guru.' };
+    if (typeof m.toId !== 'string' || m.toId === socket.id) return { ok: false, error: 'Pilih teman yang akan diberi.' };
+    const q = this.players.get(m.toId);
+    const t = q?.student;
+    if (!q || !t || t === s || t.kicked || !t.approved) return { ok: false, error: 'Temanmu sedang tidak ada di dekatmu.' };
+    if (q.scene !== p.scene || q.instance !== p.instance || Math.hypot(q.x - p.x, q.z - p.z) > SHOP.jarakBeri || Math.abs(q.y - p.y) > 3)
+      return { ok: false, error: `Dekati ${t.nama} (paling jauh ${SHOP.jarakBeri} m).` };
+    const now = Date.now();
+    s.giveTimes = s.giveTimes.filter((x) => now - x < 60_000);
+    if (s.giveTimes.length >= SHOP.beriPerMenit) return { ok: false, error: 'Pelan-pelan ya! Coba lagi sebentar lagi.' };
+    const mine = [...this.offers.values()].filter((o) => o.status === 'menunggu' && o.fromRoster === s.rosterId);
+    if (mine.length >= OFFER.maxPendingFromGiver) return { ok: false, error: 'Tunggu jawaban temanmu dulu sebelum mengirim lagi.' };
+    if (mine.some((o) => o.toRoster === t.rosterId)) return { ok: false, error: `Permintaanmu ke ${t.nama} masih menunggu jawaban.` };
+    const cool = this.pairCooldown.get(`${s.rosterId}>${t.rosterId}`) ?? 0;
+    if (now < cool) return { ok: false, error: `Tunggu ${Math.ceil((cool - now) / 1000)} detik sebelum mengirim lagi ke ${t.nama}.` };
+    const parsed = parseOffer(raw, s.bag);
+    if (!parsed.ok) return parsed;
+    s.giveTimes.push(now);
+    const id = crypto.randomUUID();
+    const o: ItemOffer & { fromRoster: string; toRoster: string } = {
+      id,
+      kind: parsed.kind,
+      status: 'menunggu',
+      dari: { absen: s.absen, nama: s.nama, karakter: s.avatar.karakter },
+      ke: { absen: t.absen, nama: t.nama, karakter: t.avatar.karakter },
+      give: parsed.give,
+      want: parsed.want,
+      createdAt: now,
+      expiresAt: now + OFFER_TTL,
+      resolvedAt: null,
+      reason: null,
+      fromRoster: s.rosterId,
+      toRoster: t.rosterId,
+    };
+    // escrow: kurangi tas pemberi sekarang (sinkron, sebelum await) → barang yang sama tidak bisa ditawarkan dua kali
+    const before = { ...s.bag };
+    s.bag[o.give.itemId]! -= o.give.qty;
+    if (!s.bag[o.give.itemId]) delete s.bag[o.give.itemId];
+    this.offers.set(id, o);
+    try {
+      await tx(async (c) => {
+        await c.query('UPDATE session_roster SET inventory = $2 WHERE id = $1', [s.rosterId, JSON.stringify(s.bag)]);
+        await c.query(
+          `INSERT INTO item_offers (id, session_id, kind, from_roster, to_roster, give_item, give_qty, want_item, want_qty, expires_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [id, this.id, o.kind, o.fromRoster, o.toRoster, o.give.itemId, o.give.qty, o.want?.itemId ?? null, o.want?.qty ?? null, new Date(o.expiresAt)],
+        );
+      });
+    } catch (e) {
+      s.bag = before;
+      this.offers.delete(id);
+      throw e;
+    }
+    q.socket.emit(EV.offers, [this.offerView(o)]);
+    this.pushTeacher();
+    return { ok: true, offer: this.offerView(o), ...this.walletOf(s) };
+  }
+
+  /**
+   * Akhiri permintaan tanpa memindahkan barang (ditolak/dibatalkan/kedaluwarsa): barang tahanan kembali ke pemberi.
+   * Idempoten: status diubah sinkron di memori; di DB hanya bila masih 'menunggu'.
+   */
+  private async closeOffer(o: ItemOffer & { fromRoster: string; toRoster: string }, status: 'ditolak' | 'dibatalkan' | 'kedaluwarsa', reason: string | null) {
+    if (o.status !== 'menunggu') return false;
+    const giver = this.studentByRoster(o.fromRoster);
+    o.status = status;
+    o.resolvedAt = Date.now();
+    o.reason = reason;
+    if (giver) giver.bag[o.give.itemId] = (giver.bag[o.give.itemId] ?? 0) + o.give.qty;
+    if (status !== 'dibatalkan') this.pairCooldown.set(`${o.fromRoster}>${o.toRoster}`, Date.now() + OFFER.pairCooldownMs);
+    await tx(async (c) => {
+      const r = await c.query("UPDATE item_offers SET status = $2, reason = $3, resolved_at = now() WHERE id = $1 AND status = 'menunggu' RETURNING give_qty", [o.id, status, reason]);
+      // Kembalikan barang di DB hanya bila baris ini yang mengubah status (tidak pernah dikembalikan dua kali)
+      if (r.rowCount && giver) await c.query('UPDATE session_roster SET inventory = $2 WHERE id = $1', [giver.rosterId, JSON.stringify(giver.bag)]);
+    });
+    const gp = this.playerOf(giver);
+    if (giver && gp) gp.socket.emit(EV.wallet, this.walletOf(giver));
+    this.emitOffer(o);
+    this.offers.delete(o.id);
+    this.pushTeacher();
+    return true;
+  }
+
+  /** Penerima menjawab TERIMA / TOLAK. Jawaban kedua untuk permintaan yang sama tidak diproses lagi. */
+  async respondOffer(socket: Socket, raw: unknown): Promise<({ ok: true; offer: ItemOffer } & WalletMsg) | { ok: false; error: string }> {
+    const s = this.players.get(socket.id)?.student;
+    if (!s) return { ok: false, error: 'Belum bergabung.' };
+    const m = (raw ?? {}) as { id?: unknown; accept?: unknown };
+    const o = typeof m.id === 'string' ? this.offers.get(m.id) : undefined;
+    if (!o || o.toRoster !== s.rosterId) return { ok: false, error: 'Permintaan ini sudah tidak berlaku.' };
+    if (o.status !== 'menunggu') return { ok: false, error: 'Permintaan ini sudah dijawab.' };
+    if (Date.now() > o.expiresAt) {
+      await this.closeOffer(o, 'kedaluwarsa', null);
+      return { ok: false, error: 'Permintaan ini sudah kedaluwarsa.' };
+    }
+    if (m.accept !== true) {
+      await this.closeOffer(o, 'ditolak', null);
+      return { ok: true, offer: this.offerView(o), ...this.walletOf(s) };
+    }
+    if ((o.kind === 'hadiah' && !this.settings.allowGifts) || (o.kind === 'tukar' && !this.settings.allowTrades)) {
+      await this.closeOffer(o, 'dibatalkan', 'Fitur dinonaktifkan guru.');
+      return { ok: false, error: 'Fitur ini baru saja dinonaktifkan guru. Barang dikembalikan ke pemberi.' };
+    }
+    const giver = this.studentByRoster(o.fromRoster);
+    if (!giver) return { ok: false, error: 'Pemberi tidak ditemukan.' };
+    const chk = canAccept(o, s.bag);
+    if (!chk.ok) return chk; // permintaan tetap menunggu: penerima bisa membuang barang dulu atau menolak
+    if (o.want && bagCount(giver.bag) + o.want.qty > SHOP.maksIsiTas) return { ok: false, error: `Tas ${giver.nama} penuh, pertukaran belum bisa dilakukan.` };
+    // pindahkan barang (sinkron), lalu simpan atomik; status 'menunggu' → 'diterima' hanya sekali
+    const before = { to: { ...s.bag }, from: { ...giver.bag } };
+    o.status = 'diterima';
+    o.resolvedAt = Date.now();
+    s.bag[o.give.itemId] = (s.bag[o.give.itemId] ?? 0) + o.give.qty;
+    if (o.want) {
+      s.bag[o.want.itemId]! -= o.want.qty;
+      if (!s.bag[o.want.itemId]) delete s.bag[o.want.itemId];
+      giver.bag[o.want.itemId] = (giver.bag[o.want.itemId] ?? 0) + o.want.qty;
+    }
+    try {
+      await tx(async (c) => {
+        const r = await c.query("UPDATE item_offers SET status = 'diterima', resolved_at = now() WHERE id = $1 AND status = 'menunggu' RETURNING id", [o.id]);
+        if (!r.rowCount) throw new Error('offer-sudah-diproses');
+        await c.query('UPDATE session_roster SET inventory = $2 WHERE id = $1', [s.rosterId, JSON.stringify(s.bag)]);
+        if (o.want) await c.query('UPDATE session_roster SET inventory = $2 WHERE id = $1', [giver.rosterId, JSON.stringify(giver.bag)]);
+      });
+    } catch (e) {
+      s.bag = before.to;
+      giver.bag = before.from;
+      if ((e as Error).message === 'offer-sudah-diproses') {
+        this.offers.delete(o.id);
+        return { ok: false, error: 'Permintaan ini sudah dijawab.' };
+      }
+      o.status = 'menunggu';
+      o.resolvedAt = null;
+      throw e;
+    }
+    const gp = this.playerOf(giver);
+    if (gp) {
+      gp.socket.emit(EV.wallet, this.walletOf(giver));
+      if (o.want) gp.socket.emit(EV.gift, { dari: s.nama, itemId: o.want.itemId, qty: o.want.qty });
+    }
+    socket.emit(EV.gift, { dari: giver.nama, itemId: o.give.itemId, qty: o.give.qty });
+    this.emitOffer(o);
+    this.offers.delete(o.id);
+    this.pushTeacher();
+    return { ok: true, offer: this.offerView(o), ...this.walletOf(s) };
+  }
+
+  /** Pemberi membatalkan permintaan yang belum dijawab → barang kembali. */
+  async cancelOffer(socket: Socket, raw: unknown): Promise<({ ok: true; offer: ItemOffer } & WalletMsg) | { ok: false; error: string }> {
+    const s = this.players.get(socket.id)?.student;
+    if (!s) return { ok: false, error: 'Belum bergabung.' };
+    const id = (raw as { id?: unknown } | null)?.id;
+    const o = typeof id === 'string' ? this.offers.get(id) : undefined;
+    if (!o || o.fromRoster !== s.rosterId) return { ok: false, error: 'Permintaan ini sudah tidak berlaku.' };
+    if (!(await this.closeOffer(o, 'dibatalkan', 'Dibatalkan pemberi.'))) return { ok: false, error: 'Permintaan ini sudah dijawab.' };
+    return { ok: true, offer: this.offerView(o), ...this.walletOf(s) };
+  }
+
+  /** Lihat isi tas teman di dekat (untuk memilih barang yang diminta dalam tukar barang). */
+  peekBag(socket: Socket, raw: unknown): { ok: true; nama: string; tas: Bag } | { ok: false; error: string } {
+    const p = this.players.get(socket.id);
+    const q = this.players.get(String((raw as { toId?: unknown } | null)?.toId ?? ''));
+    if (!p?.student || !q?.student || q === p) return { ok: false, error: 'Temanmu tidak ditemukan.' };
+    if (!this.settings.allowTrades) return { ok: false, error: 'Fitur tukar barang sedang dinonaktifkan guru.' };
+    if (q.scene !== p.scene || Math.hypot(q.x - p.x, q.z - p.z) > SHOP.jarakBeri + 1) return { ok: false, error: `Dekati ${q.student.nama} dulu.` };
+    return { ok: true, nama: q.student.nama, tas: { ...q.student.bag } };
+  }
+
+  /** Dipanggil tiap detik: permintaan yang lewat batas waktu → kedaluwarsa (barang kembali). */
+  private async expireOffers() {
+    const now = Date.now();
+    for (const o of [...this.offers.values()]) if (o.status === 'menunggu' && now > o.expiresAt) await this.closeOffer(o, 'kedaluwarsa', null).catch((e) => console.error('[offer]', e));
+  }
+
+  /** Guru mematikan fitur: permintaan yang menunggu dibatalkan dengan aman (barang kembali ke pemberi). */
+  private async cancelOffersOf(kind: 'hadiah' | 'tukar', reason: string) {
+    for (const o of [...this.offers.values()]) if (o.status === 'menunggu' && o.kind === kind) await this.closeOffer(o, 'dibatalkan', reason).catch((e) => console.error('[offer]', e));
+  }
+
+  /** Setelah server dimulai ulang: permintaan 'menunggu' di DB dikembalikan ke pemberi (tidak ada barang hilang). */
+  async recoverOffers() {
+    const r = await query<{ id: string; from_roster: string; give_item: string; give_qty: number }>("SELECT id, from_roster, give_item, give_qty FROM item_offers WHERE session_id = $1 AND status = 'menunggu'", [this.id]);
+    for (const row of r.rows) {
+      await tx(async (c) => {
+        const u = await c.query("UPDATE item_offers SET status = 'kedaluwarsa', reason = 'Server dimulai ulang', resolved_at = now() WHERE id = $1 AND status = 'menunggu' RETURNING id", [row.id]);
+        const giver = this.studentByRoster(row.from_roster);
+        if (u.rowCount && giver) {
+          giver.bag[row.give_item] = (giver.bag[row.give_item] ?? 0) + row.give_qty;
+          await c.query('UPDATE session_roster SET inventory = $2 WHERE id = $1', [giver.rosterId, JSON.stringify(giver.bag)]);
+        }
+      });
+    }
+    return r.rows.length;
+  }
+
+  /** Riwayat hadiah & tukar untuk Dashboard Guru. */
+  async offerHistory(limit = 300) {
+    const r = await query<{ id: string; kind: string; status: string; dari: string; dari_absen: number; ke: string; ke_absen: number; give_item: string; give_qty: number; want_item: string | null; want_qty: number | null; reason: string | null; created_at: Date; resolved_at: Date | null }>(
+      `SELECT o.id, o.kind, o.status, f.nickname AS dari, f.absen AS dari_absen, t.nickname AS ke, t.absen AS ke_absen,
+              o.give_item, o.give_qty, o.want_item, o.want_qty, o.reason, o.created_at, o.resolved_at
+         FROM item_offers o JOIN session_roster f ON f.id = o.from_roster JOIN session_roster t ON t.id = o.to_roster
+        WHERE o.session_id = $1 ORDER BY o.created_at DESC LIMIT $2`,
+      [this.id, limit],
+    );
+    return r.rows;
+  }
+
+  /** Kendaraan yang ditinggal jauh dari tempat parkirnya > 4 menit kembali sendiri (tidak menumpuk/terjebak). */
+  private tidyVehicles() {
+    const now = Date.now();
+    for (const [key, set] of this.vehicleSets) {
+      const [world, instS] = key.split(':') as [SceneId, string];
+      const inst = Number(instS);
+      const home = new Map(isWorldId(world) ? worldLayout(world).living.vehicles.map((v) => [v.id, v]) : []);
+      let changed = false;
+      for (const v of set.values()) {
+        if (v.driver && !this.players.has(v.driver)) {
+          v.driver = null;
+          v.idleSince = now;
+          changed = true;
+        }
+        const h = home.get(v.id);
+        if (!v.driver && h && now - v.idleSince > 240_000 && Math.hypot(v.x - h.x, v.z - h.z) > 3) {
+          v.x = h.x;
+          v.y = h.y;
+          v.z = h.z;
+          v.heading = h.heading;
+          changed = true;
+        }
+      }
+      if (changed) this.emitVehicles(world, inst);
+    }
+  }
+
   safeSpawn(scene: SceneId) {
     if (scene === 'lobi') return { ...buildLobby().spawnPoint };
     if (scene === 'podium') return { x: 0, y: 0.2, z: 14 };
-    return { ...buildKota().spawnPoint };
+    return { ...worldLayout(scene).spawnPoint };
   }
 
   emote(socket: Socket, id: unknown) {
@@ -550,14 +1111,16 @@ export class SessionRuntime {
 
   useLift(socket: Socket, liftId: unknown) {
     const p = this.players.get(socket.id);
-    if (!p?.student || p.scene !== 'kota') return { ok: false, error: 'Tidak ada lift di sini.' };
-    const lift = buildKota().lifts.find((l) => l.id === liftId);
+    if (!p?.student || !isWorldId(p.scene)) return { ok: false, error: 'Tidak ada lift di sini.' };
+    const lift = worldLayout(p.scene).lifts.find((l) => l.id === liftId);
     if (!lift) return { ok: false, error: 'Lift tidak ditemukan.' };
     if (Math.hypot(p.x - lift.x, p.z - lift.z) > LIMITS.interactDistance + 2) return { ok: false, error: 'Mendekatlah ke lift.' };
     if (lift.locked && p.student.correct < 3) return { ok: false, error: 'Lift terkunci. Jawab 3 soal dengan benar untuk membukanya.' };
+    if (p.vehicleId) return { ok: false, error: 'Turun dari kendaraan dulu.' };
     p.x = lift.target.x;
     p.y = lift.target.y;
     p.z = lift.target.z;
+    p.tp++;
     p.lastStateAt = Date.now();
     return { ok: true, target: lift.target };
   }
@@ -569,10 +1132,13 @@ export class SessionRuntime {
     if (wp) return wp;
     wp = { active: new Map(), cooldown: new Map(), pool: [], poolExhausted: false, poolLoading: null };
     this.worlds.set(w, wp);
-    const spawns = w === 'kota' ? buildKota().spawns : [];
+    const spawns = worldLayout(w).spawns;
     // Kepadatan: aktifkan sebagian titik di tiap zona (dipilih acak, merata per zona)
     const byZone = new Map<string, SpawnMarker[]>();
-    for (const s of spawns) byZone.set(s.zone, [...(byZone.get(s.zone) ?? []), s]);
+    for (const s of spawns) {
+      if (s.always) wp.active.set(s.id, { ...s, surprise: false });
+      else byZone.set(s.zone, [...(byZone.get(s.zone) ?? []), s]);
+    }
     for (const list of byZone.values()) {
       const n = Math.max(4, Math.round(list.length * this.settings.density));
       for (const i of shuffled(list.length).slice(0, n)) {
@@ -597,9 +1163,14 @@ export class SessionRuntime {
     return out;
   }
 
-  private async nextQuestion(w: WorldId, wp: WorldPoints, s: Student): Promise<QuestionRecord | null> {
+  private async nextQuestion(w: WorldId, wp: WorldPoints, s: Student, preferSubject: string | null = null): Promise<QuestionRecord | null> {
     for (let round = 0; round < 50; round++) {
       const pool = wp.pool;
+      // Misi kontekstual (mis. pedagang pasar → Matematika): utamakan mapel yang cocok bila ada di bank soal guru.
+      if (preferSubject && pool.length) {
+        const pick = pool.find((q) => q.subject === preferSubject && !s.seen.has(q.id));
+        if (pick) return pick;
+      }
       if (pool.length) {
         for (let k = 0; k < pool.length; k++) {
           const q = pool[(s.cursor + k) % pool.length]!;
@@ -612,10 +1183,8 @@ export class SessionRuntime {
       if (!wp.poolExhausted) {
         if (!wp.poolLoading) {
           wp.poolLoading = loadQuestionPage(this.teacherId, this.id, {
-            subjects: this.settings.subjects,
-            grade: this.settings.grade,
+            ...this.poolFilter(),
             world: w,
-            ids: this.questionIds,
             limit: POOL_PAGE,
             offset: wp.pool.length,
           }).then((page) => {
@@ -653,7 +1222,7 @@ export class SessionRuntime {
     if (p.student.done.has(pt.id)) return { ok: false, error: 'Kamu sudah menyelesaikan titik ini.' };
     if (this.settings.questionMode === 'jumlah' && p.student.answered >= this.settings.questionCount)
       return { ok: false, error: `Hebat! Kamu sudah menjawab ${this.settings.questionCount} soal.` };
-    const q = await this.nextQuestion(p.scene, wp, p.student);
+    const q = await this.nextQuestion(p.scene, wp, p.student, pt.always ? pt.subject : null);
     if (!q) return { ok: false, error: 'Semua soal sudah kamu jawab. Hebat!' };
     p.interactTimes.push(now);
     p.student.seen.add(q.id);
@@ -676,7 +1245,7 @@ export class SessionRuntime {
 
   private toPublic(pd: Pending): PublicQuestion {
     const q = pd.question;
-    const zone = KOTA_ZONES.find((z) => z.id === pd.zone);
+    const zone = findZone(pd.zone);
     return {
       token: pd.token,
       type: q.type,
@@ -691,6 +1260,7 @@ export class SessionRuntime {
       location: zone?.nama ?? pd.zone,
       object: pd.pointId,
       surprise: pd.surprise,
+      ...(q.image ? { image: q.image } : {}),
     };
   }
 
@@ -736,6 +1306,7 @@ export class SessionRuntime {
       s.score += points;
       s.correct++;
       s.lastCorrectAt = now;
+      s.wallet += SHOP.hadiahBenar; // hadiah uang virtual untuk jual beli (poin tetap terpisah)
     } else if (finalAttempt) {
       s.streak = 0;
     }
@@ -749,15 +1320,30 @@ export class SessionRuntime {
     }
     // Persistensi: setiap percobaan dicatat; skor siswa diperbarui atomik
     await query(
-      `INSERT INTO answers (session_id, roster_id, question_id, point_id, world, zone, answer, correct, points, attempt, elapsed_ms)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [this.id, s.rosterId, q.id, pd.pointId, pd.world, pd.zone, JSON.stringify(mapped), correct, points, pd.attempt === 2 && !finalAttempt ? 1 : pd.attempt, Math.min(elapsed, 2_000_000_000)],
+      `INSERT INTO answers (session_id, roster_id, question_id, point_id, world, zone, answer, correct, points, attempt, elapsed_ms, question_snapshot)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [
+        this.id,
+        s.rosterId,
+        q.id,
+        pd.pointId,
+        pd.world,
+        pd.zone,
+        JSON.stringify(mapped),
+        correct,
+        points,
+        pd.attempt === 2 && !finalAttempt ? 1 : pd.attempt,
+        Math.min(elapsed, 2_000_000_000),
+        // cuplikan soal saat dijawab: riwayat sesi tidak berubah walau soal di bank diedit/dihapus kemudian
+        JSON.stringify({ subject: q.subject, topic: q.topic, prompt: q.prompt, type: q.type, options: q.options, right: q.right, key: q.key, explanation: q.explanation, source: q.source ?? 'guru' }),
+      ],
     );
     if (finalAttempt) {
       await query(
-        'UPDATE session_roster SET score = $2, correct = $3, answered = $4, last_correct_at = $5 WHERE id = $1',
-        [s.rosterId, s.score, s.correct, s.answered, s.lastCorrectAt ? new Date(s.lastCorrectAt) : null],
+        'UPDATE session_roster SET score = $2, correct = $3, answered = $4, last_correct_at = $5, wallet = $6 WHERE id = $1',
+        [s.rosterId, s.score, s.correct, s.answered, s.lastCorrectAt ? new Date(s.lastCorrectAt) : null, s.wallet],
       );
+      if (correct) socket.emit(EV.wallet, this.walletOf(s));
     }
     this.lbDirty = true;
     this.lastActivity = now;
@@ -811,7 +1397,7 @@ export class SessionRuntime {
     if (!wp || !pt) return;
     wp.active.delete(pointId);
     wp.cooldown.set(pointId, Date.now() + 30_000);
-    const candidates = (w === 'kota' ? buildKota().spawns : []).filter((s) => s.zone === pt.zone && !wp.active.has(s.id) && !wp.cooldown.has(s.id));
+    const candidates = worldLayout(w).spawns.filter((s) => s.zone === pt.zone && !wp.active.has(s.id) && !wp.cooldown.has(s.id));
     if (candidates.length) {
       const n = candidates[rnd(candidates.length)]!;
       wp.active.set(n.id, { ...n, surprise: false });
@@ -821,12 +1407,24 @@ export class SessionRuntime {
 
   // ───────────────────────────── kendali guru ─────────────────────────────
 
+  /** Saringan soal sesi ini: sumber (guru/bawaan/gabungan), mapel, kelas, kesulitan, soal terpilih. */
+  poolFilter() {
+    return {
+      subjects: this.settings.subjects,
+      grade: this.settings.grade,
+      source: this.settings.questionSource ?? 'guru',
+      difficulties: this.settings.difficulties ?? [],
+      ids: this.questionIds,
+    };
+  }
+
   async start(): Promise<string | null> {
     if (this.status !== 'menunggu') return 'Sesi sudah dimulai.';
     // Pastikan ada soal untuk setiap dunia aktif
     for (const w of this.settings.worlds.filter((x) => AVAILABLE_WORLDS.has(x))) {
-      const page = await loadQuestionPage(this.teacherId, this.id, { subjects: this.settings.subjects, grade: this.settings.grade, world: w, ids: this.questionIds, limit: 1, offset: 0 });
-      if (!page.length) return `Belum ada soal yang cocok untuk Dunia ${w}. Tambahkan soal atau ubah filter mapel/kelas.`;
+      const page = await loadQuestionPage(this.teacherId, this.id, { ...this.poolFilter(), world: w, limit: 1, offset: 0 });
+      if (!page.length)
+        return `Bank soal untuk sesi ini kosong (sumber: ${QUESTION_SOURCE_LABEL[this.settings.questionSource ?? 'guru']}, Dunia ${w}). Tambahkan/impor soal Anda atau ubah sumber soal, mapel, kelas, atau tingkat kesulitan. Soal contoh tidak dipakai diam-diam.`;
     }
     this.status = 'hitung';
     this.broadcastState();
@@ -1015,11 +1613,12 @@ export class SessionRuntime {
         const ids = new Set(vis.map((v) => v.o.socket.id));
         const gone = [...p.known].filter((id) => !ids.has(id));
         for (const g of gone) p.known.delete(g);
-        const out: (RemotePlayer | [string, number, number, number, number, number, number])[] = vis.map(({ o }) => {
+        const out: (RemotePlayer | CompactPlayer)[] = vis.map(({ o }) => {
           const r2 = (v: number) => Math.round(v * 100) / 100;
-          if (p.known.has(o.socket.id)) return [o.socket.id, r2(o.x), r2(o.y), r2(o.z), r2(o.ry), o.anim, o.emote];
+          const mode = MODE_CODE[o.riding ? 'penumpang' : o.mode];
+          if (p.known.has(o.socket.id)) return [o.socket.id, r2(o.x), r2(o.y), r2(o.z), r2(o.ry), o.anim, o.emote, mode, o.tp, o.vehicleColor];
           p.known.add(o.socket.id);
-          return { id: o.socket.id, nama: o.student!.nama, absen: o.student!.absen, avatar: o.student!.avatar, x: o.x, y: o.y, z: o.z, ry: o.ry, anim: o.anim, emote: o.emote };
+          return { id: o.socket.id, nama: o.student!.nama, absen: o.student!.absen, avatar: o.student!.avatar, x: o.x, y: o.y, z: o.z, ry: o.ry, anim: o.anim, emote: o.emote, mode, tp: o.tp, vc: o.vehicleColor };
         });
         p.socket.volatile.emit(EV.players, { t: now, list: out, gone });
       }
@@ -1029,6 +1628,8 @@ export class SessionRuntime {
   /** Dipanggil 1×/detik: timer, kejutan, leaderboard, dashboard. */
   async tickSecond() {
     const now = Date.now();
+    this.tidyVehicles();
+    await this.expireOffers();
     if (this.status === 'berjalan' && this.endsAt && now >= this.endsAt) {
       await this.end();
       return;
@@ -1041,7 +1642,7 @@ export class SessionRuntime {
         if (!all.length) continue;
         const pick = all[rnd(all.length)]!;
         pick.surprise = true;
-        const zone = KOTA_ZONES.find((z) => z.id === pick.zone);
+        const zone = findZone(pick.zone);
         this.play.to(this.worldRoom(w)).emit(EV.points, { world: w, points: this.pointList(wp) });
         this.play.to(this.worldRoom(w)).emit(EV.notify, { text: `⭐ Soal Kejutan (poin ×2) muncul di ${zone?.nama ?? pick.zone}!`, kind: 'sukses' });
       }
@@ -1073,7 +1674,7 @@ export class SessionRuntime {
       .sort((a, b) => a.absen - b.absen)
       .map((s) => {
         const p = byAbsen.get(s.absen);
-        const zone = p && p.scene === 'kota' ? zoneAt(p.x, p.z) : null;
+        const zone = p && isWorldId(p.scene) ? zoneIn(p.scene, p.x, p.z) : null;
         return {
           absen: s.absen,
           nama: s.nama,
@@ -1084,6 +1685,9 @@ export class SessionRuntime {
           scene: p?.scene ?? null,
           zone: zone?.id ?? null,
           zoneName: zone?.nama ?? null,
+          mode: p ? MODE_LIMITS[p.riding ? 'penumpang' : p.mode].label : null,
+          saldo: s.wallet,
+          barang: bagCount(s.bag),
           x: p ? Math.round(p.x) : null,
           z: p ? Math.round(p.z) : null,
           poin: s.score,
@@ -1112,10 +1716,23 @@ export class SessionRuntime {
   }
 
   async updateSettings(patch: Partial<SessionSettings>, title?: string, className?: string) {
+    const prev = this.settings;
     this.settings = { ...this.settings, ...patch };
     if (title) this.title = title;
     if (className) this.className = className;
-    this.worlds.clear(); // pool & titik dibangun ulang dengan pengaturan baru
+    // pool & titik soal dibangun ulang hanya bila pengaturan soal/dunia berubah (bukan saat guru menyalakan/mematikan hadiah)
+    const soalKeys: (keyof SessionSettings)[] = ['worlds', 'subjects', 'grade', 'density', 'questionMode', 'questionCount', 'allowRepeat', 'questionSource', 'difficulties'];
+    if (soalKeys.some((k) => JSON.stringify(prev[k]) !== JSON.stringify(this.settings[k]))) this.worlds.clear();
+    if (prev.allowGifts !== false && this.settings.allowGifts === false) {
+      await this.cancelOffersOf('hadiah', 'Fitur memberi barang dinonaktifkan guru.');
+      this.notifyAll('Guru menonaktifkan fitur memberi barang. Permintaan yang menunggu dibatalkan, barang kembali ke pemiliknya.', 'peringatan');
+    }
+    if (prev.allowTrades !== false && this.settings.allowTrades === false) {
+      await this.cancelOffersOf('tukar', 'Fitur tukar barang dinonaktifkan guru.');
+      this.notifyAll('Guru menonaktifkan fitur tukar barang.', 'peringatan');
+    }
+    if (prev.allowGifts === false && this.settings.allowGifts !== false) this.notifyAll('Guru mengaktifkan fitur memberi barang.', 'info');
+    if (prev.allowTrades === false && this.settings.allowTrades !== false) this.notifyAll('Guru mengaktifkan fitur tukar barang.', 'info');
     this.broadcastState();
   }
 }
@@ -1169,6 +1786,8 @@ export class RuntimeRegistry {
         if (!s.rows[0]) return null;
         const r = await query<RosterRow>('SELECT * FROM session_roster WHERE session_id = $1', [sessionId]);
         const rt = new SessionRuntime(s.rows[0], r.rows, this.play, this.teacher);
+        // permintaan hadiah/tukar yang tertinggal saat server mati → barang kembali ke pemberi
+        await rt.recoverOffers().catch((e) => console.error('[offer] pemulihan', e));
         this.map.set(sessionId, rt);
         return rt;
       })().finally(() => this.loading.delete(sessionId));

@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import type { AvatarConfig } from '@eduverse/shared';
 import { AvatarMesh, ANIM } from '../engine/avatar.js';
-import { BODY, stepBody, type BodyState, type CollisionWorld } from '../engine/collision.js';
+import { BODY, stepBody, stepBodyFly, type BodyState, type CollisionWorld } from '../engine/collision.js';
 import { makeLabelSprite } from '../engine/signs.js';
 import type { Input } from '../engine/input.js';
 import type { FollowCamera } from '../engine/camera.js';
@@ -112,6 +112,71 @@ export class LocalPlayer {
       this.safeTimer = 0;
       this.lastSafe = { x: this.body.x, y: this.body.y, z: this.body.z };
     }
+  }
+
+  /**
+   * Terbang dengan jetpack: arah gerak relatif kamera seperti berjalan, kecepatan vertikal targetVy.
+   * Mengembalikan true bila sedang di udara.
+   */
+  updateFly(dt: number, input: Input, cam: FollowCamera, world: CollisionWorld, speed: number, targetVy: number): boolean {
+    let wishX = 0;
+    let wishZ = 0;
+    if (!this.frozen && input.enabled) {
+      const f = cam.forward();
+      wishX = f.x * input.moveY + -f.z * input.moveX;
+      wishZ = f.z * input.moveY + f.x * input.moveX;
+      const len = Math.hypot(wishX, wishZ);
+      if (len > 1) {
+        wishX /= len;
+        wishZ /= len;
+      }
+    }
+    stepBodyFly(world, this.body, wishX, wishZ, speed, targetVy, dt);
+    const hs = Math.hypot(this.body.vx, this.body.vz);
+    if (hs > 0.3) {
+      const target = Math.atan2(this.body.vx, this.body.vz);
+      let d = target - this.ry;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      this.ry += d * Math.min(1, dt * 8);
+    }
+    this.anim = !this.body.grounded ? ANIM.air : hs > 0.4 ? ANIM.walk : ANIM.idle;
+    this.avatar.update(dt, this.anim, hs / BODY.run);
+    // condong ke depan saat terbang maju
+    if (!this.body.grounded) this.avatar.root.rotation.x = 0;
+    this.sync();
+    if (this.body.grounded) {
+      this.safeTimer += dt;
+      if (this.safeTimer > 1) {
+        this.safeTimer = 0;
+        this.lastSafe = { x: this.body.x, y: this.body.y, z: this.body.z };
+      }
+    }
+    return !this.body.grounded;
+  }
+
+  /** Tempelkan avatar ke kursi kendaraan (avatar ikut miring bersama pesawat/motor). */
+  attachTo(parent: THREE.Object3D, local: THREE.Vector3) {
+    parent.add(this.avatar.root);
+    this.avatar.root.position.copy(local);
+    this.avatar.root.rotation.set(0, 0, 0);
+    this.anim = ANIM.sit;
+  }
+
+  /** Lepas dari kendaraan, kembali ke scene. */
+  detachTo(scene: THREE.Object3D) {
+    scene.add(this.avatar.root);
+    this.sync();
+  }
+
+  /** Perbarui animasi saja (saat menempel di kendaraan). */
+  animate(dt: number, anim: number) {
+    this.anim = anim;
+    this.avatar.update(dt, anim, 0);
+  }
+
+  get lastSafePos() {
+    return this.lastSafe;
   }
 
   /** Kembali ke posisi aman terakhir (tombol "Tidak bisa gerak?"). */

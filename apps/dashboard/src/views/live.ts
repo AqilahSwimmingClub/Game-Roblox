@@ -5,7 +5,7 @@
  */
 import { io, type Socket } from 'socket.io-client';
 import QRCode from 'qrcode';
-import { EV, KOTA, KOTA_ZONES, WORLDS, CHARACTERS, type SessionPublicState, type AvatarConfig } from '@eduverse/shared';
+import { EV, WORLD_ENV, worldZones, isWorldId, WORLDS, type WorldId, CHARACTERS, CATALOG, OFFER_STATUS_LABEL, type OfferStatus, type SessionPublicState, type AvatarConfig } from '@eduverse/shared';
 import { h, api, btn, toast, onLeave, fmtDate, modal, download, getToken } from '../lib.js';
 import { SERVER_URL } from '../server.js';
 
@@ -19,6 +19,9 @@ interface LiveStudent {
   scene: string | null;
   zone: string | null;
   zoneName: string | null;
+  mode?: string | null;
+  saldo?: number;
+  barang?: number;
   x: number | null;
   z: number | null;
   poin: number;
@@ -101,6 +104,17 @@ export async function liveView(id: string): Promise<HTMLElement> {
   const feedEl = h('div', { class: 'feed' });
   const heat = h('canvas', { class: 'heat', width: 600, height: 600 }) as HTMLCanvasElement;
   const zoneList = h('div', { class: 'col', style: 'gap:4px' });
+  // Peta sebaran per dunia (guru memilih tab dunia)
+  let heatWorld: WorldId = 'kota';
+  const heatTitle = h('h2', { style: 'margin:0' }, 'Sebaran Siswa — Dunia Kota');
+  const heatTabs = h('div', { class: 'row wrap', style: 'gap:6px' });
+  const renderHeatTabs = () =>
+    heatTabs.replaceChildren(
+      ...live.state.worlds.filter(isWorldId).map((w) => {
+        const n = live.students.filter((st) => st.online && st.scene === w).length;
+        return h('button', { type: 'button', class: `btn kecil ${w === heatWorld ? 'biru' : 'putih'}`, 'data-heat-world': w, onclick: () => ((heatWorld = w), renderHeatTabs(), renderHeat()) }, `${WORLDS.find((x) => x.id === w)?.nama ?? w} (${n})`);
+      }),
+    );
   const resultsEl = h('div', { class: 'col' });
 
   function renderControls() {
@@ -176,8 +190,9 @@ export async function liveView(id: string): Promise<HTMLElement> {
                 h('span', { class: 'dot', style: `background:${s.online ? '#2FBF71' : '#C3CCDB'};margin-right:6px` }),
                 !s.claimed ? 'Belum masuk' : !s.approved ? h('span', { class: 'chip oranye' }, 'Perlu disetujui') : s.online ? 'Online' : 'Terputus',
               ),
-              h('td', null, s.online ? `${SCENE[s.scene ?? ''] ?? '—'}${s.zoneName ? ' · ' + s.zoneName : ''}` : '—'),
+              h('td', null, s.online ? `${SCENE[s.scene ?? ''] ?? '—'}${s.zoneName ? ' · ' + s.zoneName : ''}${s.mode && s.mode !== 'Berjalan' ? ' · ' + s.mode : ''}` : '—'),
               h('td', { style: 'font-family:Fredoka;font-size:18px' }, String(s.poin)),
+              h('td', { title: 'Uang virtual untuk jual beli di Kota Hidup (tidak memengaruhi poin)' }, s.saldo === undefined ? '—' : `Rp${s.saldo.toLocaleString('id-ID')} · ${s.barang ?? 0} barang`),
               h('td', null, charBadge(s.avatar)),
               h('td', null, `${s.benar} benar / ${s.dijawab - s.benar} salah`),
               h('td', null, live.state.progressTarget ? `${s.dijawab}/${live.state.progressTarget}` : String(s.dijawab)),
@@ -223,12 +238,16 @@ export async function liveView(id: string): Promise<HTMLElement> {
     const ctx = heat.getContext('2d');
     if (!ctx) return;
     const W = heat.width;
-    const sc = W / (KOTA.half * 2);
-    const px = (x: number) => (x + KOTA.half) * sc;
-    const pz = (z: number) => (z + KOTA.half) * sc;
-    ctx.fillStyle = '#9ED98F';
+    // Dunia Kota mencakup kota + Bandara (timur) + Kawasan Gedung Tinggi (barat)
+    const HALF = WORLD_ENV[heatWorld].half;
+    heatTitle.textContent = `Sebaran Siswa — ${WORLDS.find((x) => x.id === heatWorld)?.nama ?? heatWorld}`;
+    const zones = worldZones(heatWorld);
+    const sc = W / (HALF * 2);
+    const px = (x: number) => (x + HALF) * sc;
+    const pz = (z: number) => (z + HALF) * sc;
+    ctx.fillStyle = heatWorld === 'kota' ? '#9ED98F' : WORLD_ENV[heatWorld].mapBg;
     ctx.fillRect(0, 0, W, W);
-    for (const zn of KOTA_ZONES) {
+    for (const zn of zones) {
       const n = live.zones[zn.id] ?? 0;
       ctx.fillStyle = `#${zn.color.toString(16).padStart(6, '0')}${n ? 'AA' : '44'}`;
       for (const r of zn.rects) ctx.fillRect(px(r.x - r.hx), pz(r.z - r.hz), r.hx * 2 * sc, r.hz * 2 * sc);
@@ -236,12 +255,12 @@ export async function liveView(id: string): Promise<HTMLElement> {
     ctx.fillStyle = '#FFFFFF';
     ctx.font = 'bold 13px Nunito, sans-serif';
     ctx.textAlign = 'center';
-    for (const zn of KOTA_ZONES) {
+    for (const zn of zones) {
       const n = live.zones[zn.id] ?? 0;
       if (n) ctx.fillText(`${n}`, px(zn.label.x), pz(zn.label.z) - 8);
     }
     for (const s of live.students) {
-      if (!s.online || s.scene !== 'kota' || s.x === null || s.z === null) continue;
+      if (!s.online || s.scene !== heatWorld || s.x === null || s.z === null) continue;
       ctx.beginPath();
       ctx.arc(px(s.x), pz(s.z), 6, 0, Math.PI * 2);
       ctx.fillStyle = '#1E2A4A';
@@ -251,7 +270,7 @@ export async function liveView(id: string): Promise<HTMLElement> {
       ctx.stroke();
     }
     zoneList.replaceChildren(
-      ...KOTA_ZONES.map((zn) =>
+      ...zones.map((zn) =>
         h('div', { class: 'row', style: 'gap:8px' }, h('span', { class: 'dot', style: `background:#${zn.color.toString(16).padStart(6, '0')}` }), h('span', { class: 'grow' }, zn.nama), h('b', null, String(live.zones[zn.id] ?? 0))),
       ),
     );
@@ -315,6 +334,83 @@ export async function liveView(id: string): Promise<HTMLElement> {
     ));
   }
 
+  // ---------- interaksi siswa: hadiah & tukar barang (ON/OFF kapan saja) + riwayat ----------
+  const switchEl = (key: 'allowGifts' | 'allowTrades', label: string, desc: string) => {
+    const i = h('input', { type: 'checkbox', role: 'switch', 'data-setting': key }) as HTMLInputElement;
+    i.onchange = async () => {
+      i.disabled = true;
+      try {
+        await api(`/sessions/${id}`, { method: 'PATCH', json: { settings: { [key]: i.checked } } });
+        live = { ...live, state: { ...live.state, [key]: i.checked } };
+        toast(`${label}: ${i.checked ? 'AKTIF' : 'NONAKTIF'}`);
+        void loadHistory();
+      } catch (e) {
+        i.checked = !i.checked;
+        toast((e as Error).message, true);
+      } finally {
+        i.disabled = false;
+      }
+    };
+    return { el: h('label', { class: 'check', style: 'align-items:flex-start' }, i, h('span', null, h('b', null, label), h('div', { class: 'muted', style: 'font-size:13px' }, desc))), i };
+  };
+  const giftSw = switchEl('allowGifts', 'Izinkan siswa memberi barang', 'Penerima harus menekan TERIMA. Bila dimatikan, permintaan yang menunggu dibatalkan dan barang kembali ke pemberi.');
+  const tradeSw = switchEl('allowTrades', 'Izinkan siswa tukar barang', 'Kedua siswa harus setuju. Uang virtual tidak pernah bisa dipindahkan antarsiswa.');
+  const histEl = h('div', { class: 'tablewrap', style: 'max-height:340px;overflow:auto' });
+  function renderInteraksi() {
+    if (document.activeElement !== giftSw.i) giftSw.i.checked = live.state.allowGifts !== false;
+    if (document.activeElement !== tradeSw.i) tradeSw.i.checked = live.state.allowTrades !== false;
+  }
+  interface OfferRow {
+    kind: string;
+    status: OfferStatus;
+    dari: string;
+    dari_absen: number;
+    ke: string;
+    ke_absen: number;
+    give_item: string;
+    give_qty: number;
+    want_item: string | null;
+    want_qty: number | null;
+    reason: string | null;
+    created_at: string;
+  }
+  const itemTxt = (id: string | null, q: number | null) => (id ? `${CATALOG[id]?.ikon ?? ''} ${CATALOG[id]?.nama ?? id} ×${q ?? 1}` : '');
+  async function loadHistory() {
+    try {
+      const r = await api<{ offers: OfferRow[] }>(`/sessions/${id}/offers`);
+      histEl.replaceChildren(
+        r.offers.length
+          ? h(
+              'table',
+              { class: 'riwayat-hadiah' },
+              h('thead', null, h('tr', null, ...['Waktu', 'Jenis', 'Pemberi', 'Penerima', 'Barang', 'Status'].map((t) => h('th', null, t)))),
+              h(
+                'tbody',
+                null,
+                ...r.offers.map((o) =>
+                  h(
+                    'tr',
+                    null,
+                    h('td', null, new Date(o.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })),
+                    h('td', null, o.kind === 'tukar' ? '🔁 Tukar' : '🎁 Hadiah'),
+                    h('td', null, `${o.dari} (${o.dari_absen})`),
+                    h('td', null, `${o.ke} (${o.ke_absen})`),
+                    h('td', null, itemTxt(o.give_item, o.give_qty) + (o.want_item ? ` ⇄ ${itemTxt(o.want_item, o.want_qty)}` : '')),
+                    h('td', null, h('span', { class: `chip ${o.status === 'diterima' ? 'hijau' : o.status === 'menunggu' ? 'abu' : 'oranye'}` }, OFFER_STATUS_LABEL[o.status] ?? o.status), o.reason ? h('div', { class: 'muted', style: 'font-size:12px' }, o.reason) : null),
+                  ),
+                ),
+              ),
+            )
+          : h('p', { class: 'muted' }, 'Belum ada hadiah atau tukar barang di sesi ini.'),
+      );
+    } catch {
+      /* dicoba lagi pada siklus berikutnya */
+    }
+  }
+  void loadHistory();
+  const histTimer = setInterval(() => void loadHistory(), 5000);
+  onLeave(() => clearInterval(histTimer));
+
   let lastStatus = live.state.status;
   function apply(next: LiveData) {
     live = next;
@@ -323,7 +419,10 @@ export async function liveView(id: string): Promise<HTMLElement> {
     renderControls();
     renderStudents();
     renderLeaderboard();
+    if (!live.state.worlds.includes(heatWorld) && isWorldId(live.state.worlds[0])) heatWorld = live.state.worlds[0];
+    renderHeatTabs();
     renderHeat();
+    renderInteraksi();
     tick();
     if (live.state.status !== lastStatus || (live.state.status === 'selesai' && !resultsEl.childElementCount)) void renderResults().catch(() => undefined);
     lastStatus = live.state.status;
@@ -406,9 +505,10 @@ export async function liveView(id: string): Promise<HTMLElement> {
       'div',
       { class: 'grid', style: 'grid-template-columns:repeat(auto-fit,minmax(340px,1fr))' },
       h('div', { class: 'card col' }, h('h2', null, 'Papan Skor Langsung'), lbEl),
-      h('div', { class: 'card col' }, h('h2', null, 'Sebaran Siswa — Dunia Kota'), h('div', { class: 'row', style: 'align-items:flex-start;flex-wrap:nowrap' }, h('div', { style: 'flex:1.3;min-width:0' }, heat), h('div', { style: 'flex:1;min-width:0;font-size:14px' }, zoneList))),
+      h('div', { class: 'card col' }, heatTitle, heatTabs, h('div', { class: 'row', style: 'align-items:flex-start;flex-wrap:nowrap' }, h('div', { style: 'flex:1.3;min-width:0' }, heat), h('div', { style: 'flex:1;min-width:0;font-size:14px' }, zoneList))),
     ),
-    h('div', { class: 'card col' }, h('h2', null, 'Siswa'), h('div', { class: 'tablewrap' }, h('table', null, h('thead', null, h('tr', null, ...['Absen', 'Nama', 'Status', 'Lokasi', 'Poin', 'Karakter', 'Jawaban', 'Progres', 'Peringkat', 'Aksi'].map((t) => h('th', null, t)))), studentsBody))),
+    h('div', { class: 'card col' }, h('h2', null, 'Siswa'), h('div', { class: 'tablewrap' }, h('table', null, h('thead', null, h('tr', null, ...['Absen', 'Nama', 'Status', 'Lokasi', 'Poin', 'Uang · Tas', 'Karakter', 'Jawaban', 'Progres', 'Peringkat', 'Aksi'].map((t) => h('th', null, t)))), studentsBody))),
     h('div', { class: 'card col' }, h('h2', null, 'Umpan Jawaban Langsung'), feedEl),
+    h('div', { class: 'card col' }, h('h2', null, 'Interaksi Siswa — Hadiah & Tukar Barang'), h('div', { class: 'row wrap', style: 'gap:18px' }, giftSw.el, tradeSw.el), h('h3', { style: 'margin:6px 0 0' }, 'Riwayat'), histEl),
   );
 }

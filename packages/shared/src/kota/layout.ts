@@ -6,6 +6,7 @@
  */
 import { Rng } from '../rng.js';
 import { WorldBuilder, Transform, type Box, type Disc, type Sign, type Tree, type Lamp, type Facing } from './builder.js';
+import { addLivingCity, type LivingLayout } from './living.js';
 
 export const KOTA = {
   half: 600,
@@ -58,10 +59,11 @@ export const KOTA_ZONES: Zone[] = [
     ],
     label: { x: -405, z: 0 },
   },
+  { id: 'bandara', nama: 'Bandara EDUVERSE', landmark: 'Menara kontrol dan landasan pacu', subject: 'IPAS', color: 0x1fb6d9, rects: [{ x: 900, z: 40, hx: 290, hz: 190 }], label: { x: 900, z: 40 } },
+  { id: 'bisnis', nama: 'Kawasan Gedung Tinggi', landmark: 'Menara EDUVERSE 66 m dan Pusat Teknologi', subject: 'Koding', color: 0x8b5cf6, rects: [{ x: -830, z: 0, hx: 220, hz: 160 }, { x: -860, z: -380, hx: 30, hz: 30 }], label: { x: -830, z: 0 } },
 ];
 
 export function zoneAt(x: number, z: number): Zone | null {
-  if (Math.abs(x) > KOTA.half || Math.abs(z) > KOTA.half) return null;
   for (const zone of KOTA_ZONES) {
     for (const r of zone.rects) {
       if (Math.abs(x - r.x) <= r.hx && Math.abs(z - r.z) <= r.hz) return zone;
@@ -80,6 +82,8 @@ export interface SpawnMarker {
   hidden: boolean;
   subject: string | null;
   difficulty: 'mudah' | 'sedang' | 'sulit';
+  /** Titik misi kontekstual (pedagang/warga, area rahasia) — selalu aktif, tidak ikut pengacakan kepadatan. */
+  always?: boolean;
 }
 
 export interface Halte {
@@ -125,6 +129,7 @@ export interface KotaLayout {
   spawnPoint: { x: number; y: number; z: number };
   podium: { x: number; z: number };
   water: { x0: number; x1: number; z0: number; z1: number; surface: number; bottom: number }[];
+  living: LivingLayout;
 }
 
 const PASTEL = [0xffd6a5, 0xcdeac0, 0xbde0fe, 0xffc8dd, 0xfdffb6, 0xcaffbf, 0xe2c2ff, 0xffadad];
@@ -185,7 +190,9 @@ export function buildKota(): KotaLayout {
   // Batas dunia
   for (const s of [-1, 1]) {
     b.box(0, 1, s * H, 2 * H, 2, 0.6, C.putih);
-    b.box(s * H, 1, 0, 0.6, 2, 2 * H, C.putih);
+    // pagar timur & barat punya gerbang (z −9..9) menuju Bandara / Kawasan Gedung Tinggi
+    b.box(s * H, 1, (-H - 9) / 2, 0.6, 2, H - 9, C.putih);
+    b.box(s * H, 1, (H + 9) / 2, 0.6, 2, H - 9, C.putih);
   }
 
   // ---------------- Jalan ----------------
@@ -881,6 +888,10 @@ export function buildKota(): KotaLayout {
   fill('taman', 10, 150, 4);
   fill('perumahan', 50, 150, 6);
 
+  const living = addLivingCity(b, H, KOTA.ring, (id, x, y, z, zone, object, hidden, subject, always = true) => {
+    spawns.push({ id, x, y, z, zone, object, hidden, subject, difficulty: hidden ? 'sulit' : 'sedang', ...(always ? { always: true } : {}) });
+  });
+
   cached = {
     boxes: b.boxes,
     discs: b.discs,
@@ -896,6 +907,7 @@ export function buildKota(): KotaLayout {
     spawnPoint: { x: 0, y: 0.2, z: 21 },
     podium: { x: 0, z: -28 },
     water,
+    living,
   };
   return cached;
 }

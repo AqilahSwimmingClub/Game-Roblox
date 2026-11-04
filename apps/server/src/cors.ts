@@ -12,15 +12,26 @@ function toRegex(pattern: string): RegExp {
 
 const allowed = [...config.corsOrigins, config.publicUrl].filter(Boolean).map(toRegex);
 
-/** Origin diizinkan? (tanpa Origin = permintaan dari halaman yang sama / non-browser → diizinkan) */
-export function originAllowed(origin: string | undefined): boolean {
+/**
+ * Origin diizinkan? (tanpa Origin = permintaan dari halaman yang sama / non-browser → diizinkan)
+ * `host` = header Host permintaan: halaman yang disajikan server ini sendiri (origin == host) selalu boleh.
+ * Penting untuk Server Sekolah: guru bisa membuka lewat localhost, siswa lewat IP WiFi/hotspot yang berbeda-beda.
+ */
+export function originAllowed(origin: string | undefined, host?: string | string[]): boolean {
   if (!origin) return true;
+  if (typeof host === 'string' && host) {
+    try {
+      if (new URL(origin).host.toLowerCase() === host.toLowerCase()) return true;
+    } catch {
+      return false;
+    }
+  }
   return allowed.some((r) => r.test(origin));
 }
 
 export function corsMiddleware(req: Request, res: Response, next: NextFunction) {
   const origin = req.headers.origin;
-  if (origin && originAllowed(origin)) {
+  if (origin && originAllowed(origin, req.headers.host)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
@@ -29,7 +40,7 @@ export function corsMiddleware(req: Request, res: Response, next: NextFunction) 
     res.setHeader('Access-Control-Max-Age', '600');
   }
   if (req.method === 'OPTIONS') {
-    res.status(origin && originAllowed(origin) ? 204 : 403).end();
+    res.status(origin && originAllowed(origin, req.headers.host) ? 204 : 403).end();
     return;
   }
   next();

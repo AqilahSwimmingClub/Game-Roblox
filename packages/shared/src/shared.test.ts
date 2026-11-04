@@ -3,6 +3,19 @@ import {
   CHARACTERS,
   buildKota,
   KOTA_ZONES,
+  KOTA_WORLD_HALF,
+  MODE_LIMITS,
+  VEHICLE_SPEC,
+  JETPACK,
+  lightFor,
+  riftExit,
+  SHOP,
+  CATALOG,
+  checkBuy,
+  checkGive,
+  sanitizeBag,
+  bagCount,
+  type Box,
   zoneAt,
   busPosition,
   computeScore,
@@ -31,8 +44,13 @@ describe('layout Dunia Kota', () => {
     const ids = new Set(k.spawns.map((s) => s.id));
     expect(ids.size).toBe(k.spawns.length);
     for (const s of k.spawns) {
-      expect(Math.abs(s.x)).toBeLessThanOrEqual(600);
-      expect(Math.abs(s.z)).toBeLessThanOrEqual(600);
+      // Dunia Kota kini mencakup Bandara (timur) & Kawasan Gedung Tinggi (barat) di luar pagar kota ±600 m
+      expect(Math.abs(s.x)).toBeLessThanOrEqual(KOTA_WORLD_HALF);
+      expect(Math.abs(s.z)).toBeLessThanOrEqual(KOTA_WORLD_HALF);
+      if (!['bandara', 'bisnis'].includes(s.zone)) {
+        expect(Math.abs(s.x)).toBeLessThanOrEqual(600);
+        expect(Math.abs(s.z)).toBeLessThanOrEqual(600);
+      }
     }
   });
   it('zoneAt memetakan pusat setiap zona ke zonanya', () => {
@@ -103,7 +121,7 @@ describe('soal', () => {
       learningOutcome: '',
       type: 'pg',
       prompt: 'Soal?',
-      options: ['a', 'A'],
+      options: ['a b', ' a  b '],
       right: [],
       key: { type: 'pg', index: 5 },
       explanation: '',
@@ -112,6 +130,9 @@ describe('soal', () => {
       world: 'semua',
     });
     expect(errs).toContain('Ada opsi kembar');
+    // soal huruf kapital: opsi yang hanya beda kapital itu sah
+    const kapital = validateQuestion({ subject: 'Bahasa Indonesia', grade: 5, phase: 'C', topic: 'Huruf kapital', learningOutcome: '', type: 'pg', prompt: 'Penulisan yang benar …', options: ['saya pergi.', 'Saya pergi.'], right: [], key: { type: 'pg', index: 1 }, explanation: '', difficulty: 'mudah', points: 100, world: 'semua' });
+    expect(kapital).toEqual([]);
     expect(errs).toContain('Kunci tidak cocok dengan opsi');
   });
   it('sidik jari sama untuk soal yang hanya beda spasi/kapital', () => {
@@ -130,5 +151,99 @@ describe('soal', () => {
     expect(CHARACTERS).toHaveLength(20);
     expect(new Set(CHARACTERS.map((c) => c.kode)).size).toBe(20);
     CHARACTERS.forEach((c, i) => expect(c.id).toBe(i));
+  });
+});
+
+describe('Kota Hidup (living city)', () => {
+  const k = buildKota();
+  const L = k.living;
+  const solid = k.boxes.filter((b: Box) => b.k === 'solid' || b.k === 'glass');
+  const blocked = (x: number, y: number, z: number, r: number, h = 1.8) =>
+    solid.some((b) => x + r > b.x - b.sx / 2 && x - r < b.x + b.sx / 2 && z + r > b.z - b.sz / 2 && z - r < b.z + b.sz / 2 && y + h > b.y - b.sy / 2 && y + 0.45 < b.y + b.sy / 2);
+
+  it('memiliki kendaraan, stasiun jetpack, lubang dimensi, pedagang, lalu lintas & lampu', () => {
+    for (const kind of ['sepeda', 'motor', 'mobil', 'bus', 'pesawat']) expect(L.vehicles.some((v) => v.kind === kind), kind).toBe(true);
+    expect(L.jetpacks.length).toBeGreaterThanOrEqual(4);
+    expect(L.vendors.length).toBeGreaterThanOrEqual(10);
+    expect(L.loops.length).toBeGreaterThanOrEqual(5);
+    expect(L.lights.length).toBeGreaterThanOrEqual(4);
+  });
+  it('kendaraan, pedagang, stasiun & portal tidak tertanam di bangunan', () => {
+    for (const v of L.vehicles) expect(blocked(v.x, v.y, v.z, v.kind === 'pesawat' ? 4 : 1), v.id).toBe(false);
+    for (const v of L.vendors) expect(blocked(v.x, v.y, v.z, 0.6), v.id).toBe(false);
+    for (const j of L.jetpacks) expect(blocked(j.x, j.y, j.z, 0.8), j.id).toBe(false);
+    for (const r of L.rifts) {
+      expect(blocked(r.x, r.y, r.z, 1.2), r.id).toBe(false);
+      const e = riftExit(r);
+      expect(blocked(e.x, e.y, e.z, 0.5), `keluar ${r.id}`).toBe(false);
+    }
+  });
+  it('setiap lubang dimensi berpasangan (atau gerbang antardunia tanpa tujuan)', () => {
+    for (const r of L.rifts) {
+      if (!r.to) continue;
+      const dest = L.rifts.find((x) => x.id === r.to);
+      expect(dest, r.id).toBeTruthy();
+      expect(dest!.to).toBe(r.id);
+    }
+  });
+  it('misi pedagang menjadi titik soal yang selalu aktif dengan mapel kontekstual', () => {
+    for (const v of L.vendors) {
+      const sp = k.spawns.find((s) => s.id === v.id);
+      expect(sp?.always, v.id).toBe(true);
+      expect(sp?.subject).toBeTruthy();
+    }
+  });
+  it('batas server per mode ≥ kecepatan kendaraan di klien', () => {
+    for (const [kind, spec] of Object.entries(VEHICLE_SPEC)) expect(MODE_LIMITS[kind as keyof typeof MODE_LIMITS].maxSpeed).toBeGreaterThanOrEqual(spec.maxSpeed);
+    expect(MODE_LIMITS.jetpack.maxSpeed).toBeGreaterThanOrEqual(JETPACK.speed);
+    expect(MODE_LIMITS.jetpack.maxY).toBeGreaterThanOrEqual(JETPACK.maxY);
+  });
+  it('lampu lalu lintas: dua arah tidak pernah hijau bersamaan', () => {
+    for (let t = 0; t < 64; t += 0.5) {
+      const x = lightFor('x', t);
+      const z = lightFor('z', t);
+      expect(x === 'merah' || z === 'merah', `t=${t}`).toBe(true);
+    }
+  });
+  it('lintasan lalu lintas & pejalan kaki berada di dalam dunia', () => {
+    for (const l of [...L.loops, ...L.walks]) for (const p of l.pts) expect(Math.max(Math.abs(p.x), Math.abs(p.z))).toBeLessThan(KOTA_WORLD_HALF);
+  });
+});
+
+describe('Toko & Tas', () => {
+  const k = buildKota();
+  const sari = k.living.vendors.find((v) => v.id === 'V01')!;
+  it('setiap barang pedagang ada di katalog dengan harga positif', () => {
+    const sellers = k.living.vendors.filter((v) => v.items.length);
+    expect(sellers.length).toBeGreaterThanOrEqual(8);
+    for (const v of sellers) for (const it of v.items) expect(CATALOG[it.id]?.harga, `${v.id}/${it.id}`).toBeGreaterThan(0);
+  });
+  it('membeli: total = harga × jumlah, sisa = saldo − total', () => {
+    const apel = sari.items.find((i) => i.id === 'apel')!;
+    const r = checkBuy(20000, {}, sari.items, 'apel', 3);
+    expect(r).toEqual({ ok: true, total: apel.harga * 3, sisa: 20000 - apel.harga * 3 });
+  });
+  it('menolak uang kurang (dengan selisihnya), jumlah tidak sah, barang yang tidak dijual, tas penuh', () => {
+    const r = checkBuy(2000, {}, sari.items, 'mangga', 1);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.kurang).toBe(CATALOG.mangga!.harga - 2000);
+    for (const q of [0, -1, 1.5, SHOP.maksBeliSekali + 1, '2']) expect(checkBuy(99999, {}, sari.items, 'apel', q).ok, String(q)).toBe(false);
+    expect(checkBuy(99999, {}, sari.items, 'nasi-goreng', 1).ok).toBe(false);
+    expect(checkBuy(99999, { apel: SHOP.maksIsiTas }, sari.items, 'apel', 1).ok).toBe(false);
+  });
+  it('memberi barang: hanya barang yang dimiliki, 1–3 sekali beri, tas penerima harus muat', () => {
+    expect(checkGive({ apel: 2 }, {}, 'apel', 2).ok).toBe(true);
+    expect(checkGive({ apel: 1 }, {}, 'apel', 2).ok).toBe(false);
+    expect(checkGive({}, {}, 'apel', 1).ok).toBe(false);
+    expect(checkGive({ apel: 5 }, {}, 'apel', SHOP.maksBeriSekali + 1).ok).toBe(false);
+    expect(checkGive({ apel: 5 }, {}, 'uang', 1).ok).toBe(false);
+    const full = checkGive({ apel: 1 }, { jeruk: SHOP.maksIsiTas }, 'apel', 1, 'Sinta');
+    expect(full.ok).toBe(false);
+    if (!full.ok) expect(full.error).toContain('Sinta');
+  });
+  it('isi tas tersimpan dibersihkan (id asing, angka negatif/pecahan dibuang)', () => {
+    const b = sanitizeBag({ apel: 2, hack: 99, jeruk: -3, pisang: 1.7, mangga: 'x' });
+    expect(b).toEqual({ apel: 2, pisang: 1 });
+    expect(bagCount(b)).toBe(3);
   });
 });

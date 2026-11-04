@@ -184,6 +184,160 @@ try {
     await shot(teacher, 'g4-umpan-jawaban');
   });
 
+  // ───────── Kota Hidup multipemain: kendaraan, jetpack, lubang dimensi, validasi server, sambung ulang ─────────
+  const goTo = async (pg, x, z, until = null, ms = 90000) => {
+    await pg.evaluate(({ x, z }) => window.__eduDebug.goTo(x, z), { x, z });
+    await pg.waitForFunction((u) => !window.__eduDebug.walking() || (u && window.__edu.prompt === u), until, { timeout: ms }).catch(() => undefined);
+    await pg.evaluate(() => window.__eduDebug.stop());
+  };
+  const edu = (pg) => pg.evaluate(() => window.__edu);
+  await step('Server menolak kendaraan/portal/jetpack dari jauh (validasi tepercaya)', async () => {
+    const r = await a.page.evaluate(async () => {
+      const d = window.__eduDebug.raw;
+      return [await d.enterVehicle('PESAWAT25'), await d.useRift('R_PASAR'), await d.setJetpack(true, 'JP_TAMAN')];
+    });
+    if (r.some((x) => x.ok)) throw new Error(JSON.stringify(r));
+    console.log(`    ditolak: ${r.map((x) => x.error).join(' | ')}`);
+  });
+  await step('Siswa A naik mobil → siswa B melihat A mengendarai mobil', async () => {
+    await goTo(a.page, 47, 50, 'kendaraan');
+    if ((await edu(a.page)).prompt !== 'kendaraan') throw new Error(`prompt ${(await edu(a.page)).prompt}`);
+    const pid = (await edu(a.page)).mobility.promptId;
+    await a.page.evaluate(() => window.__eduDebug.action());
+    const okEnter = await a.page.waitForFunction(() => ['mobil', 'motor', 'sepeda'].includes(window.__edu.mobility?.mode), null, { timeout: 8000 }).then(() => true, () => false);
+    if (!okEnter) throw new Error(`tidak bisa naik ${pid}: ${JSON.stringify(await a.page.evaluate((id) => window.__eduDebug.raw.enterVehicle(id), pid))} pos=${JSON.stringify((await edu(a.page)).pos)}`);
+    const kind = (await edu(a.page)).mobility.mode;
+    await b.page.waitForFunction((k) => window.__edu.remoteModes.some((r) => r.nama === 'Raka' && r.mode === k && r.vehicleVisible), kind, { timeout: 10000 });
+    await b.page.waitForFunction(() => window.__edu.vehicles.some((v) => v.driver), null, { timeout: 5000 });
+    await a.page.evaluate(() => window.__eduDebug.control({ gas: true }));
+    await a.page.waitForTimeout(2500);
+    await a.page.evaluate(() => window.__eduDebug.control({ gas: false, brake: true }));
+    await a.page.waitForTimeout(2000);
+    await a.page.evaluate(() => window.__eduDebug.control({ brake: false }));
+    const seen = (await edu(b.page)).remoteModes.find((r) => r.nama === 'Raka');
+    await shot(b.page, 's3b-b-melihat-a-berkendara');
+    await a.page.evaluate(() => window.__eduDebug.action()); // turun
+    const okExit = await a.page.waitForFunction(() => window.__edu.mobility?.mode === 'jalan', null, { timeout: 8000 }).then(() => true, () => false);
+    if (!okExit) throw new Error(`gagal turun: ${JSON.stringify((await edu(a.page)).mobility)} prompt=${(await edu(a.page)).prompt} teks=${(await a.page.locator('.notify-wrap').innerText()).slice(0, 200)}`);
+    await b.page.waitForFunction(() => window.__edu.remoteModes.some((r) => r.nama === 'Raka' && r.mode === 'jalan' && !r.vehicleVisible), null, { timeout: 10000 });
+    await b.page.waitForFunction(() => !window.__edu.vehicles.some((v) => v.driver), null, { timeout: 5000 });
+    console.log(`    B melihat Raka mengendarai ${kind} di (${seen.x}, ${seen.z}); setelah turun kendaraan diparkir di posisi baru untuk semua pemain`);
+  });
+  await step('Siswa A memakai jetpack → siswa B melihat jetpack & A terbang', async () => {
+    await goTo(a.page, -30, 31, 'jetpack');
+    if ((await edu(a.page)).prompt !== 'jetpack') throw new Error(`prompt ${(await edu(a.page)).prompt}`);
+    await a.page.evaluate(() => window.__eduDebug.action());
+    await a.page.waitForFunction(() => window.__edu.mobility?.mode === 'jetpack', null, { timeout: 8000 });
+    await a.page.keyboard.down('Space');
+    await a.page.waitForFunction(() => window.__edu.pos.y > 12, null, { timeout: 10000 });
+    await a.page.keyboard.up('Space');
+    await b.page.waitForFunction(() => window.__edu.remoteModes.some((r) => r.nama === 'Raka' && r.mode === 'jetpack' && r.jetpackVisible && r.y > 8), null, { timeout: 10000 });
+    await shot(b.page, 's3c-b-melihat-a-jetpack');
+    await a.page.keyboard.down('KeyC');
+    await a.page.waitForFunction(() => window.__edu.pos.y < 0.5, null, { timeout: 15000 });
+    await a.page.keyboard.up('KeyC');
+    await a.page.keyboard.press('KeyF');
+    await a.page.waitForFunction(() => window.__edu.mobility?.mode === 'jalan', null, { timeout: 8000 });
+  });
+  const scoreBeforeRift = (await edu(a.page)).score;
+  await step('Siswa A masuk lubang dimensi Alun-alun → Bandara; avatar & skor tetap; server menerima posisi baru', async () => {
+    await goTo(a.page, 24, 22); // memutari Menara Jam
+    await goTo(a.page, 26, -26);
+    await a.page.waitForFunction(() => window.__edu.pos.x > 600, null, { timeout: 10000 });
+    await a.page.waitForTimeout(3000);
+    const e = await edu(a.page);
+    if (e.pos.x < 600) throw new Error(`posisi dikoreksi server: ${JSON.stringify(e.pos)}`);
+    if (e.score !== scoreBeforeRift || e.myChar !== 0) throw new Error(`skor/karakter berubah ${e.score} ${e.myChar}`);
+    await shot(a.page, 's3d-bandara');
+    console.log(`    tiba di (${e.pos.x.toFixed(0)}, ${e.pos.z.toFixed(0)}) · skor ${e.score} · karakter ${e.myChar}`);
+  });
+  await step('Siswa A membeli di kios Bandara (server): saldo berkurang, tas bertambah, aturan ditegakkan server', async () => {
+    const far = await a.page.evaluate(() => window.__eduDebug.raw.buy('V01', 'apel', 1));
+    if (far.ok) throw new Error('membeli dari pedagang jauh diterima');
+    await goTo(a.page, 760, 95, 'pedagang');
+    if ((await edu(a.page)).prompt !== 'pedagang') throw new Error(`prompt ${(await edu(a.page)).prompt}`);
+    const fake = await a.page.evaluate(() => window.__eduDebug.raw.buy('V09', 'atlas-indonesia', 1));
+    if (fake.ok || !/tidak dijual/.test(fake.error)) throw new Error('barang yang tidak dijual diterima');
+    const s0 = (await edu(a.page)).mobility.saldo;
+    const r = await a.page.evaluate(() => window.__eduDebug.raw.buy('V09', 'roti', 1));
+    if (!r.ok || r.saldo !== s0 - 6000 || r.tas.roti !== 1) throw new Error(`beli: ${JSON.stringify(r)} saldo awal ${s0}`);
+    const over = await a.page.evaluate(() => window.__eduDebug.raw.buy('V09', 'roti', 5));
+    if (r.saldo < 30000 && (over.ok || !over.kurang)) throw new Error(`uang kurang tidak ditolak: ${JSON.stringify(over)}`);
+    const air = await a.page.evaluate(() => window.__eduDebug.raw.buy('V09', 'air-mineral', 2));
+    const used = await a.page.evaluate(() => window.__eduDebug.raw.useItem('air-mineral'));
+    if (!air.ok || !used.ok || used.tas['air-mineral'] !== 1) throw new Error(`air/pakai: ${JSON.stringify(air)} ${JSON.stringify(used)}`);
+    await teacher.getByText(/Rp\d[\d.]* · 2 barang/).first().waitFor({ timeout: 10000 });
+    console.log(`    ditolak: "${far.error}" · "${fake.error}" · "${over.error}"`);
+    console.log(`    saldo ${s0} → ${used.saldo}, tas ${JSON.stringify(used.tas)}; Dashboard Guru menampilkan uang & isi tas`);
+  });
+  const tasSebelum = (await edu(a.page)).mobility.tas;
+
+  await step('Sambung ulang saat mengendarai: kendaraan dilepas dengan aman, sesi & skor utuh', async () => {
+    await goTo(a.page, 685, 171, 'kendaraan');
+    if ((await edu(a.page)).prompt !== 'kendaraan') throw new Error(`prompt ${(await edu(a.page)).prompt}`);
+    await a.page.evaluate(() => window.__eduDebug.action());
+    await a.page.waitForFunction(() => window.__edu.mobility?.mode !== 'jalan', null, { timeout: 8000 });
+    const id = (await edu(a.page)).mobility.vehicle.id;
+    await a.page.context().setOffline(true);
+    await a.page.waitForTimeout(30000);
+    await a.page.context().setOffline(false);
+    await a.page.waitForFunction(() => window.__edu.mobility?.mode === 'jalan' && window.__edu.scene === 'kota', null, { timeout: 40000 });
+    await a.page.waitForFunction((vid) => window.__edu.vehicles.some((v) => v.id === vid && !v.driver), id, { timeout: 10000 });
+    const e = await edu(a.page);
+    if (e.score !== scoreBeforeRift) throw new Error('skor berubah');
+    if (JSON.stringify(e.mobility.tas) !== JSON.stringify(tasSebelum)) throw new Error(`tas berubah setelah sambung ulang: ${JSON.stringify(e.mobility.tas)} vs ${JSON.stringify(tasSebelum)}`);
+    console.log(`    setelah sambung ulang: mode ${e.mobility.mode}, ${id} diparkir (tanpa pengemudi), posisi (${e.pos.x.toFixed(0)}, ${e.pos.z.toFixed(0)}), skor ${e.score}, tas ${JSON.stringify(e.mobility.tas)} utuh`);
+  });
+
+  await step('Siswa A mengirim hadiah ke siswa B (UI tas + server) → B melihat pop-up & menekan TERIMA → barang pindah; ditolak bila jauh/diri sendiri/habis', async () => {
+    const idB = (await edu(b.page)).myId;
+    const tasA0 = (await edu(a.page)).mobility.tas;
+    // B masih jauh (di Kota), A di Bandara → ditolak server
+    const far = await a.page.evaluate((id) => window.__eduDebug.raw.give(id, 'roti', 1), idB);
+    if (far.ok || !/Dekati Sinta/.test(far.error)) throw new Error(`memberi dari jauh: ${JSON.stringify(far)}`);
+    const self = await a.page.evaluate((id) => window.__eduDebug.raw.give(id, 'roti', 1), (await edu(a.page)).myId);
+    if (self.ok) throw new Error('memberi ke diri sendiri diterima');
+    // B menyusul lewat lubang dimensi Alun-alun → Bandara, lalu berjalan ke dekat A
+    await goTo(b.page, 24, 22);
+    await goTo(b.page, 26, -26);
+    await b.page.waitForFunction(() => window.__edu.pos.x > 600, null, { timeout: 15000 });
+    const pa = (await edu(a.page)).pos;
+    await goTo(b.page, pa.x + 2, pa.z - 2);
+    await a.page.waitForFunction(() => window.__eduDebug.friends(5.5).some((f) => f.nama === 'Sinta'), null, { timeout: 15000 });
+    // A membuka tas (tombol B) → BERI Air Mineral → pilih Sinta
+    await a.page.keyboard.press('KeyB');
+    await a.page.getByRole('button', { name: 'Beri Air Mineral', exact: true }).click();
+    await a.page.getByRole('button', { name: '🎁 Sinta', exact: true }).click();
+    await a.page.getByRole('button', { name: 'KIRIM HADIAH', exact: true }).click();
+    await a.page.getByText(/untuk Sinta terkirim/).waitFor({ timeout: 8000 });
+    await shot(a.page, 's3e-beri-barang');
+    await a.page.getByRole('button', { name: 'Tutup', exact: true }).click();
+    // B melihat pop-up permintaan (nama pemberi, barang, jumlah) dengan TERIMA hijau & TOLAK merah
+    const popup = b.page.locator('.offer-popup');
+    await popup.getByText('Raka ingin memberikan 1 Air Mineral kepadamu').waitFor({ timeout: 10000 });
+    await shot(b.page, 's3f0-popup-terima-tolak');
+    // barang belum pindah sebelum B menjawab (ditahan server)
+    if ((await edu(b.page)).mobility.tas['air-mineral']) throw new Error('barang pindah sebelum TERIMA');
+    await popup.getByRole('button', { name: 'Terima', exact: true }).click();
+    const diag = async () => JSON.stringify({ a: (await edu(a.page)).offers, b: (await edu(b.page)).offers, bTas: (await edu(b.page)).mobility.tas, bGifts: (await edu(b.page)).giftsReceived, popupText: (await popup.count()) ? (await popup.innerText()).slice(0, 200) : null });
+    if (!(await b.page.waitForFunction(() => window.__edu.giftsReceived >= 1 && window.__edu.mobility.tas['air-mineral'] === 1, null, { timeout: 8000 }).then(() => true, () => false))) throw new Error(`B setelah TERIMA: ${await diag()}`);
+    if (!(await a.page.waitForFunction(() => window.__edu.offers.accepted >= 1, null, { timeout: 8000 }).then(() => true, () => false))) throw new Error(`A setelah TERIMA: ${await diag()}`);
+    // Banner pemberitahuan hanya 3,2 dtk; yang dicek adalah tanda yang bertahan: lencana 🎁 di tombol Tas
+    // dan daftar "Hadiah terbaru" di dalam tas.
+    await b.page.locator('.mv-wallet.ada-hadiah', { hasText: '🎁1' }).waitFor({ timeout: 10000 });
+    await b.page.keyboard.press('KeyB');
+    await b.page.locator('.gift-row', { hasText: 'Air Mineral ×1 dari Raka' }).waitFor({ timeout: 5000 });
+    await shot(b.page, 's3f-terima-barang');
+    await b.page.getByRole('button', { name: 'Tutup', exact: true }).click();
+    await b.page.waitForFunction(() => window.__edu.mobility.giftsUnseen === 0, null, { timeout: 5000 });
+    const tasA1 = (await edu(a.page)).mobility.tas;
+    if ((tasA1['air-mineral'] ?? 0) !== (tasA0['air-mineral'] ?? 0) - 1) throw new Error(`tas A ${JSON.stringify(tasA0)} → ${JSON.stringify(tasA1)}`);
+    const none = await a.page.evaluate((id) => window.__eduDebug.raw.give(id, 'air-mineral', 1), idB);
+    if (none.ok) throw new Error('memberi barang yang sudah habis diterima');
+    console.log(`    ditolak: "${far.error}" · "${self.error}" · "${none.error}"`);
+    console.log(`    tas A ${JSON.stringify(tasA0)} → ${JSON.stringify(tasA1)} · tas B ${JSON.stringify((await edu(b.page)).mobility.tas)}`);
+  });
+
   await step('Guru mengakhiri permainan → hasil akhir tampil', async () => {
     teacher.once('dialog', (d) => d.accept());
     await teacher.getByRole('button', { name: '■ Akhiri Permainan' }).click();

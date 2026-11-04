@@ -1,0 +1,65 @@
+name: Uji Deployment Publik
+
+# Memeriksa alamat yang BENAR-BENAR bisa diakses publik (bukan localhost):
+# - Frontend Vercel (game, Dashboard /guru/, Mode Demo, eduverse-config.js)
+# - Backend (REST /api/health + WebSocket Socket.IO) di alamat yang tertulis di eduverse-config.js
+# - Mode Demo dimainkan sungguhan di Chromium (uji Kota Hidup) terhadap alamat publik
+# Frontend yang rusak = gagal. Backend yang belum dinyalakan pemilik akun = peringatan jelas (bukan disembunyikan).
+
+on:
+  push:
+    branches: ['dev/**']
+  workflow_dispatch:
+    inputs:
+      web_url:
+        description: 'Alamat frontend (Vercel)'
+        default: 'https://eduverse-web-preview.vercel.app'
+  schedule:
+    - cron: '17 23 * * 0-4' # tiap pagi hari sekolah (06.17 WIB), sebelum kelas
+
+permissions:
+  contents: read
+
+jobs:
+  publik:
+    name: Alamat publik (${{ matrix.nama }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Preview branch ini (alias tetap dari Vercel) — WAJIB lulus
+          - nama: preview dev/eduverse-living-city
+            url: https://eduverse-web-preview-git-de-10d7d3-aqilahswimmingclubs-projects.vercel.app
+            strict: 'true'
+          # Production — hanya dilaporkan (sengaja belum diganti sampai alur lengkap siap)
+          - nama: production
+            url: https://eduverse-web-preview.vercel.app
+            strict: 'false'
+    env:
+      WEB_URL: ${{ github.event.inputs.web_url || matrix.url }}
+      STRICT: ${{ matrix.strict }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Periksa frontend & backend
+        id: cek
+        run: node tests/deploy/check-public.mjs
+      - name: Mode Demo dimainkan di alamat publik
+        if: steps.cek.outputs.demo_ok == 'true' && matrix.strict == 'true'
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.63.0
+          npx playwright install --with-deps chromium
+          node tests/e2e/living-city.mjs
+        env:
+          SHOTS: shots
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uji-deployment-${{ matrix.strict == 'true' && 'preview' || 'production' }}
+          path: |
+            shots
+            deploy-check.json
+          retention-days: 7

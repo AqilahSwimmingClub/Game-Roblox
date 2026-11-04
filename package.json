@@ -21,10 +21,13 @@
     "db:migrate": "npm run db:migrate -w @eduverse/server",
     "db:seed": "npm run db:seed -w @eduverse/server",
     "start": "npm run start -w @eduverse/server",
+    "sekolah": "npm run build && node apps/server/dist/sekolah.js",
     "e2e": "node tests/e2e/two-players.mjs",
     "loadtest": "node tests/load/bots.mjs",
     "build:web": "npm run build -w @eduverse/shared && npm run build -w @eduverse/game && npm run build -w @eduverse/dashboard -- --outDir ../game/dist/guru --emptyOutDir && node scripts/write-web-config.mjs",
     "e2e:demo": "node tests/e2e/demo.mjs",
+    "e2e:kota": "node tests/e2e/living-city.mjs",
+    "e2e:dunia": "node tests/e2e/worlds.mjs",
     "test:security": "node tests/security/abuse.mjs"
   }
 }

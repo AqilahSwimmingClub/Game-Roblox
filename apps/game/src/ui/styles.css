@@ -262,3 +262,47 @@ body.touch .desk-only { display: none !important; }
   .tile .v { font-size: 28px; }
 }
 @media (orientation: portrait) { .notify-wrap { width: 92vw; top: calc(120px + var(--safe-t)); } }
+
+/* ───────── Kota Hidup: kontrol kontekstual kendaraan / pesawat / jetpack ───────── */
+body.mv-drive .hud .br, body.mv-jet .hud .br, body.mv-drive .demo-bottom, body.mv-jet .demo-bottom { display: none !important; }
+.mv-ui { position: fixed; inset: 0; pointer-events: none; z-index: 9; font-family: 'Nunito', sans-serif; }
+.mv-ui button { pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; }
+.mv-tele { position: absolute; top: calc(64px + var(--safe-t, 0px)); left: 50%; transform: translateX(-50%); padding: 6px 14px; font-weight: 900; font-size: 14px; color: var(--navy, #1e2a4a); white-space: nowrap; max-width: 92vw; overflow: hidden; text-overflow: ellipsis; }
+.mv-hint { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); padding: 6px 12px; font-weight: 800; font-size: 13px; }
+.mv-right { position: absolute; right: calc(12px + var(--safe-r, 0px)); bottom: calc(14px + var(--safe-b, 0px)); display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.mv-row { display: flex; gap: 8px; }
+.mv-set { display: flex; gap: 10px; align-items: flex-end; }
+.mv-col { display: flex; flex-direction: column; gap: 10px; }
+.mv-btn { min-width: 76px; min-height: 64px; font-size: 18px; padding: 6px 12px; }
+.mv-btn.besar-gas { min-width: 96px; min-height: 96px; border-radius: 50%; font-size: 22px; }
+.mv-btn.ditekan { transform: translateY(5px); filter: brightness(1.1); }
+.mv-set.ringkas .mv-btn { min-width: 64px; min-height: 48px; font-size: 15px; }
+.mv-set.ringkas .mv-btn.besar-gas { min-width: 72px; min-height: 72px; }
+.mv-jet-toggle { position: absolute; left: calc(12px + var(--safe-l, 0px)); bottom: calc(212px + var(--safe-b, 0px)); min-height: 52px; font-size: 16px; }
+@media (max-height: 430px) {
+  .mv-btn { min-width: 64px; min-height: 52px; font-size: 15px; }
+  .mv-btn.besar-gas { min-width: 78px; min-height: 78px; }
+  .mv-tele { top: calc(46px + var(--safe-t, 0px)); font-size: 12px; }
+  .mv-jet-toggle { bottom: calc(206px + var(--safe-b, 0px)); min-height: 44px; }
+}
+.rift-fx { position: fixed; inset: 0; z-index: 35; pointer-events: none; opacity: 0; transition: opacity 0.45s; background: radial-gradient(circle at 50% 50%, #ffffff 0%, #c4b5fd 18%, #6d28d9 48%, #1e1b4b 100%); display: flex; align-items: center; justify-content: center; }
+.rift-fx.in { opacity: 1; }
+.rift-fx .rift-name { font: 700 clamp(22px, 5vw, 44px) Fredoka, sans-serif; color: #fff; text-shadow: 0 4px 18px #1e1b4b; opacity: 0; transform: scale(0.8); transition: opacity 0.3s, transform 0.3s; }
+.rift-fx.show-name .rift-name { opacity: 1; transform: scale(1); }
+body.mv-dialog .demo-bottom, body.mv-dialog .mv-ui, body.mv-dialog .hud .br, body.mv-dialog .demo-hint, body.mv-dialog .demo-map, body.mv-dialog .demo-back, body.mv-dialog .demo-head { display: none !important; }
+@media (orientation: portrait) { .mv-tele { top: calc(118px + var(--safe-t, 0px)); } }
+.mv-wallet { position: absolute; left: calc(12px + var(--safe-l, 0px)); top: 46%; min-height: 46px; font-size: 16px; padding: 6px 12px; }
+/* HP/tablet: di samping pil peringkat (kiri atas), tidak menutupi Emote/joystick */
+body.touch .mv-wallet { top: calc(94px + var(--safe-t, 0px)); left: calc(140px + var(--safe-l, 0px)); min-height: 38px; font-size: 15px; padding: 4px 12px; }
+.mv-wallet.ada-hadiah { --c: #F3E8FF; outline: 3px solid #8B5CF6; animation: hadiah-denyut 1.2s ease-in-out infinite; }
+@keyframes hadiah-denyut { 50% { transform: scale(1.06); } }
+
+/* Dunia Laut: lapisan biru saat kepala di bawah air (tidak menghalangi sentuhan) */
+body.bawah-air::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: radial-gradient(ellipse at 50% 40%, rgba(40, 150, 210, 0.28), rgba(10, 60, 110, 0.55));
+}

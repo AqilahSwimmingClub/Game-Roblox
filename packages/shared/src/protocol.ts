@@ -20,6 +20,16 @@ export interface SessionSettings {
   density: number; // 0.3 | 0.5 | 0.8
   requireApproval: boolean; // identitas siswa harus disetujui guru
   showLeaderboard: boolean;
+  /** Sumber soal: 'guru' (bawaan sesi resmi), 'bawaan', atau 'gabungan'. */
+  questionSource: 'guru' | 'bawaan' | 'gabungan';
+  /** Tingkat kesulitan yang dipakai (kosong = semua). */
+  difficulties: ('mudah' | 'sedang' | 'sulit')[];
+  /** Pilih N soal acak dari bank saat sesi dibuat (null = semua soal yang cocok). */
+  randomCount: number | null;
+  /** Siswa boleh memberi barang ke teman (dengan persetujuan penerima). Bisa diubah guru saat sesi berjalan. */
+  allowGifts: boolean;
+  /** Siswa boleh bertukar barang dua arah (persetujuan kedua siswa). Bisa diubah guru saat sesi berjalan. */
+  allowTrades: boolean;
 }
 
 export const DEFAULT_SETTINGS: SessionSettings = {
@@ -36,6 +46,11 @@ export const DEFAULT_SETTINGS: SessionSettings = {
   density: 0.5,
   requireApproval: true, // guru menyetujui setiap siswa yang masuk (alur kelas resmi)
   showLeaderboard: true,
+  questionSource: 'guru',
+  difficulties: [],
+  randomCount: null,
+  allowGifts: true,
+  allowTrades: true,
 };
 
 /** Batas server (anti curang & stabilitas). */
@@ -64,6 +79,24 @@ export interface RemotePlayer {
   ry: number;
   anim: number; // 0 diam, 1 jalan, 2 lari, 3 lompat/jatuh, 4 renang, 5 duduk
   emote: number; // -1 tidak ada
+  mode: number; // MODE_CODE (0 jalan, 2 sepeda, 3 motor, 4 mobil, 5 bus, 6 pesawat, 7 jetpack, 1 penumpang)
+  tp: number; // bertambah setiap teleport (lift/lubang dimensi/koreksi) → klien tidak menginterpolasi lompatan
+  vc: number; // warna kendaraan yang dikendarai
+}
+
+/** Snapshot ringkas: [id, x, y, z, ry, anim, emote, mode, tp, vc]. */
+export type CompactPlayer = [string, number, number, number, number, number, number, number, number, number];
+
+/** Status kendaraan yang bisa dikendarai (parkir / sedang dipakai) — dikirim saat berubah saja. */
+export interface VehicleStateMsg {
+  id: string;
+  kind: string;
+  x: number;
+  y: number;
+  z: number;
+  heading: number;
+  color: number;
+  driver: string | null; // socket id pengemudi
 }
 
 export interface PlayerStateMsg {
@@ -74,6 +107,11 @@ export interface PlayerStateMsg {
   ry: number;
   anim: number;
   riding: boolean;
+  /** Info saja (server memakai mode yang ia catat sendiri). */
+  mode?: number;
+  /** Untuk pesawat: kemiringan badan (radian), hanya visual. */
+  pitch?: number;
+  roll?: number;
 }
 
 export interface ActivePoint {
@@ -109,6 +147,8 @@ export interface SessionPublicState {
   remainingMs: number | null; // saat jeda
   serverNow: number;
   showLeaderboard: boolean;
+  allowGifts: boolean;
+  allowTrades: boolean;
   progressTarget: number | null;
 }
 
@@ -164,6 +204,17 @@ export const EV = {
   closeQuestion: 'question:close',
   emote: 'emote',
   useLift: 'lift:use', // {liftId} → ack
+  vehicleEnter: 'vehicle:enter', // {id} → ack {ok, vehicle}
+  vehicleExit: 'vehicle:exit', // {x, y, z} → ack {ok, x, y, z}
+  jetpack: 'jetpack:set', // {on, stationId?} → ack
+  riftUse: 'rift:use', // {riftId} → ack {ok, target, nama}
+  buy: 'shop:buy', // {vendorId, itemId, qty} → ack {ok, saldo, tas, total, sisa} (dinilai server)
+  useItem: 'item:use', // {itemId} → ack {ok, saldo, tas, efek}
+  give: 'item:give', // (lama) dipertahankan untuk kompatibilitas: kini membuat PERMINTAAN hadiah
+  offerCreate: 'offer:create', // {kind:'hadiah'|'tukar', toId, give:{itemId,qty}, want?:{itemId,qty}} → ack {ok, offer, saldo, tas}
+  offerRespond: 'offer:respond', // {id, accept} → ack {ok, offer, saldo, tas}
+  offerCancel: 'offer:cancel', // {id} → ack {ok, offer, saldo, tas}
+  offerPeek: 'offer:peek', // {toId} → ack {ok, nama, tas} (isi tas teman di dekat, untuk memilih barang tukar)
   // server → klien siswa
   session: 'session:state',
   roster: 'roster',
@@ -177,6 +228,10 @@ export const EV = {
   notify: 'notify',
   countdown: 'countdown',
   teleport: 'teleport',
+  vehicles: 'vehicles:state',
+  wallet: 'wallet:update', // WalletMsg {saldo, tas} — setelah jawaban benar, pembelian, pemakaian, hadiah
+  gift: 'item:gift', // {dari, itemId, qty, x, y, z} — barang dari teman sudah MASUK ke tasmu (setelah kamu TERIMA)
+  offers: 'offer:list', // ItemOffer[] — permintaan yang masih menunggu & yang baru berubah status (untukmu) // VehicleStateMsg[] (penuh) saat masuk dunia & setiap perubahan
   ended: 'game:ended',
   podium: 'podium:show',
   kicked: 'kicked',

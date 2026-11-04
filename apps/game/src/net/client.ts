@@ -6,7 +6,7 @@
  */
 import { io, type Socket } from 'socket.io-client';
 import { SERVER_URL, SERVER_LABEL } from './server.js';
-import { EV, type AnswerPayload, type AvatarConfig, type SceneId, type SessionPublicState, type RosterEntry, type PublicQuestion, type AnswerResultMsg, type ActivePoint } from '@eduverse/shared';
+import { EV, type ItemOffer, type ItemLine, type OfferKind, type Bag, type WalletMsg, type VehicleStateMsg, type AnswerPayload, type AvatarConfig, type SceneId, type SessionPublicState, type RosterEntry, type PublicQuestion, type AnswerResultMsg, type ActivePoint } from '@eduverse/shared';
 
 export interface Me {
   absen: number;
@@ -17,6 +17,7 @@ export interface Me {
   benar?: number;
   dijawab?: number;
   lastScene?: SceneId | null;
+  dompet?: WalletMsg;
 }
 
 export interface JoinOk {
@@ -146,10 +147,54 @@ export class NetClient {
   }
 
   enter(scene: SceneId) {
-    return this.call<{ ok: true; spawn: { x: number; y: number; z: number }; points?: ActivePoint[]; done?: string[] }>(EV.enterWorld, { scene });
+    return this.call<{ ok: true; spawn: { x: number; y: number; z: number }; points?: ActivePoint[]; done?: string[]; vehicles?: VehicleStateMsg[]; jetpack?: boolean; dompet?: WalletMsg; offers?: ItemOffer[] }>(EV.enterWorld, { scene });
   }
 
-  sendState(s: { scene: SceneId; x: number; y: number; z: number; ry: number; anim: number; riding: boolean }) {
+  enterVehicle(id: string) {
+    return this.call<{ ok: true; vehicle: VehicleStateMsg }>(EV.vehicleEnter, { id });
+  }
+
+  exitVehicle(p: { x: number; y: number; z: number }) {
+    return this.call<{ ok: true; x: number; y: number; z: number }>(EV.vehicleExit, p);
+  }
+
+  setJetpack(on: boolean, stationId?: string) {
+    return this.call<{ ok: true; on: boolean }>(EV.jetpack, { on, stationId });
+  }
+
+  buy(vendorId: string, itemId: string, qty: number) {
+    return this.call<{ ok: true; total: number; sisa: number } & WalletMsg>(EV.buy, { vendorId, itemId, qty });
+  }
+
+  useItem(itemId: string) {
+    return this.call<{ ok: true; itemId: string } & WalletMsg>(EV.useItem, { itemId });
+  }
+
+  give(toId: string, itemId: string, qty: number) {
+    return this.call<{ ok: true; ke: string; itemId: string; qty: number } & WalletMsg>(EV.give, { toId, itemId, qty });
+  }
+
+  createOffer(kind: OfferKind, toId: string, give: ItemLine, want: ItemLine | null) {
+    return this.call<{ ok: true; offer: ItemOffer } & WalletMsg>(EV.offerCreate, { kind, toId, give, want });
+  }
+
+  respondOffer(id: string, accept: boolean) {
+    return this.call<{ ok: true; offer: ItemOffer } & WalletMsg>(EV.offerRespond, { id, accept });
+  }
+
+  cancelOffer(id: string) {
+    return this.call<{ ok: true; offer: ItemOffer } & WalletMsg>(EV.offerCancel, { id });
+  }
+
+  peekBag(toId: string) {
+    return this.call<{ ok: true; nama: string; tas: Bag }>(EV.offerPeek, { toId });
+  }
+
+  useRift(riftId: string) {
+    return this.call<{ ok: true; target: { x: number; y: number; z: number; ry: number }; nama: string }>(EV.riftUse, { riftId });
+  }
+
+  sendState(s: { scene: SceneId; x: number; y: number; z: number; ry: number; anim: number; riding: boolean; mode?: number; pitch?: number; roll?: number }) {
     if (this.connected) this.socket.volatile.emit(EV.state, s);
   }
 

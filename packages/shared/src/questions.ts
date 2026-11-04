@@ -20,7 +20,23 @@ export const SUBJECTS = [
   'Seni Budaya',
   'PJOK',
   'Pendidikan Agama',
+  'Pendidikan Agama Islam dan Budi Pekerti',
+  'Koding dan Kecerdasan Artifisial',
+  'Muatan Lokal',
 ] as const;
+
+/** Asal soal: dibuat/diimpor guru, atau soal bawaan EDUVERSE (contoh). */
+export type QuestionSource = 'guru' | 'bawaan';
+/** Sumber soal sebuah sesi. Bawaan sesi resmi: hanya soal guru (soal bawaan tidak tercampur tanpa izin). */
+export type SessionQuestionSource = 'guru' | 'bawaan' | 'gabungan';
+export const QUESTION_SOURCE_LABEL: Record<SessionQuestionSource, string> = {
+  guru: 'Hanya Soal Guru',
+  bawaan: 'Soal Bawaan EDUVERSE',
+  gabungan: 'Gabungan Keduanya',
+};
+/** Gambar soal: data URL png/jpeg/webp yang sudah diperkecil di Dashboard (maks ±300 KB). */
+export const QUESTION_IMAGE_MAX = 400_000;
+export const QUESTION_IMAGE_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
 
 export type Difficulty = 'mudah' | 'sedang' | 'sulit';
 
@@ -47,6 +63,10 @@ export interface QuestionRecord {
   difficulty: Difficulty;
   points: number;
   world: string; // 'semua' | WorldId
+  /** Gambar pendukung (opsional). */
+  image?: string | null;
+  /** Asal soal (diisi server). */
+  source?: QuestionSource;
 }
 
 /** Yang dikirim ke siswa (tanpa kunci). Kolom kanan menjodohkan sudah diacak. */
@@ -64,6 +84,8 @@ export interface PublicQuestion {
   location: string;
   object: string;
   surprise: boolean;
+  /** Gambar pendukung soal (data URL), bila ada. */
+  image?: string;
 }
 
 /** Jawaban dari klien. */
@@ -138,11 +160,16 @@ export function validateQuestion(q: Omit<QuestionRecord, 'id'>): string[] {
   if (!q.subject) errors.push('Mata pelajaran wajib diisi');
   if (!Number.isInteger(q.grade) || q.grade < 1 || q.grade > 6) errors.push('Kelas harus 1–6');
   if (q.points < 10 || q.points > 1000) errors.push('Poin harus 10–1000');
+  if (q.image) {
+    if (q.image.length > QUESTION_IMAGE_MAX) errors.push('Gambar terlalu besar (maks ±300 KB)');
+    else if (!QUESTION_IMAGE_RE.test(q.image)) errors.push('Gambar harus PNG/JPEG/WEBP');
+  }
   switch (q.type) {
     case 'pg': {
       if (q.options.length < 2 || q.options.length > 5) errors.push('Pilihan ganda butuh 2–5 opsi');
       if (q.options.some((o) => !o.trim())) errors.push('Ada opsi kosong');
-      if (new Set(q.options.map(normalizeText)).size !== q.options.length) errors.push('Ada opsi kembar');
+      // peka huruf besar-kecil: soal ejaan/huruf kapital sah memakai opsi yang hanya berbeda kapitalnya
+      if (new Set(q.options.map((o) => o.trim().replace(/\s+/g, ' '))).size !== q.options.length) errors.push('Ada opsi kembar');
       if (q.options.some((o) => o.length > 120)) errors.push('Opsi lebih dari 120 karakter');
       if (q.key.type !== 'pg' || q.key.index < 0 || q.key.index >= q.options.length) errors.push('Kunci tidak cocok dengan opsi');
       break;

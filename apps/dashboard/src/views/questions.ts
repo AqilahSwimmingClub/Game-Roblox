@@ -1,5 +1,5 @@
 /** Bank soal: cari/saring/halaman, tambah/ubah/hapus, soal contoh, templat & impor Word/Excel (pratinjau → simpan). */
-import { SUBJECTS, validateQuestion, type QuestionRecord, type QuestionType, type AnswerKey } from '@eduverse/shared';
+import { SUBJECTS, validateQuestion, QUESTION_IMAGE_MAX, type QuestionRecord, type QuestionType, type AnswerKey } from '@eduverse/shared';
 import { h, api, btn, toast, modal, download } from '../lib.js';
 
 type Q = QuestionRecord;
@@ -14,18 +14,51 @@ function keyText(q: QIn): string {
   return k.pairs.map((r, i) => `${q.options[i]}→${q.right[r]}`).join(', ');
 }
 
+/** Perkecil gambar di perangkat guru (maks 800 px, JPEG) agar ringan di HP siswa. */
+async function shrinkImage(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = rej;
+      i.src = url;
+    });
+    const k = Math.min(1, 800 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.width * k));
+    c.height = Math.max(1, Math.round(img.height * k));
+    const g = c.getContext('2d')!;
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, c.width, c.height);
+    g.drawImage(img, 0, 0, c.width, c.height);
+    for (const q of [0.82, 0.7, 0.55, 0.4]) {
+      const d = c.toDataURL('image/jpeg', q);
+      if (d.length <= QUESTION_IMAGE_MAX) return d;
+    }
+    throw new Error('Gambar terlalu besar');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export async function questionsView(): Promise<HTMLElement> {
-  const state = { search: '', subject: '', grade: '', type: '', page: 1, pageSize: 25 };
+  const state = { search: '', subject: '', grade: '', type: '', source: '', difficulty: '', page: 1, pageSize: 25 };
   const selected = new Set<string>();
   const statsEl = h('div', { class: 'row' });
   const tbody = h('tbody');
   const pager = h('div', { class: 'pager' });
 
   async function loadStats() {
-    const s = await api<{ total: number; bySubject: { subject: string; grade: number; n: number }[]; imports: { filename: string; question_count: number }[] }>('/questions/stats');
+    const s = await api<{ total: number; bySubject: { subject: string; grade: number; n: number }[]; bySource?: { guru: number; bawaan: number }; imports: { filename: string; question_count: number }[] }>('/questions/stats');
     const by = new Map<string, number>();
     for (const r of s.bySubject) by.set(r.subject, (by.get(r.subject) ?? 0) + r.n);
-    statsEl.replaceChildren(h('span', { class: 'chip biru' }, `Total ${s.total} soal`), ...[...by].map(([k, n]) => h('span', { class: 'chip abu' }, `${k}: ${n}`)));
+    statsEl.replaceChildren(
+      h('span', { class: 'chip biru' }, `Total ${s.total} soal`),
+      h('span', { class: 'chip hijau', 'data-stat': 'guru' }, `Soal guru: ${s.bySource?.guru ?? 0}`),
+      h('span', { class: 'chip kuning', 'data-stat': 'bawaan' }, `Soal bawaan: ${s.bySource?.bawaan ?? 0}`),
+      ...[...by].map(([k, n]) => h('span', { class: 'chip abu' }, `${k}: ${n}`)),
+    );
   }
 
   async function load() {
@@ -34,6 +67,8 @@ export async function questionsView(): Promise<HTMLElement> {
     if (state.subject) qs.set('subject', state.subject);
     if (state.grade) qs.set('grade', state.grade);
     if (state.type) qs.set('type', state.type);
+    if (state.source) qs.set('source', state.source);
+    if (state.difficulty) qs.set('difficulty', state.difficulty);
     const r = await api<{ total: number; page: number; pageSize: number; items: Q[] }>(`/questions?${qs}`);
     tbody.replaceChildren(
       ...(r.items.length
@@ -44,7 +79,12 @@ export async function questionsView(): Promise<HTMLElement> {
               'tr',
               null,
               h('td', null, cb),
-              h('td', null, h('div', { style: 'font-weight:800' }, q.prompt), h('div', { class: 'muted', style: 'font-size:13px' }, `Kunci: ${keyText(q)}`)),
+              h(
+                'td',
+                null,
+                h('div', { style: 'font-weight:800' }, q.image ? '🖼️ ' : '', q.prompt, q.source === 'bawaan' ? h('span', { class: 'chip kuning', style: 'margin-left:6px;font-size:11px' }, 'Bawaan') : null),
+                h('div', { class: 'muted', style: 'font-size:13px' }, `Kunci: ${keyText(q)} · ${q.difficulty}`),
+              ),
               h('td', null, q.subject, h('div', { class: 'muted', style: 'font-size:13px' }, q.topic)),
               h('td', null, `Kls ${q.grade}`),
               h('td', null, h('span', { class: 'chip ungu' }, TYPE_LABEL[q.type])),
@@ -83,6 +123,29 @@ export async function questionsView(): Promise<HTMLElement> {
     const points = h('input', { class: 'in', type: 'number', min: '10', max: '1000', step: '10', value: String(q?.points ?? 100) }) as HTMLInputElement;
     const difficulty = h('select', { class: 'in' }, ...['mudah', 'sedang', 'sulit'].map((d) => h('option', { value: d, selected: (q?.difficulty ?? 'sedang') === d }, d))) as HTMLSelectElement;
     const explanation = h('textarea', { class: 'in', maxlength: 1000, style: 'min-height:70px' }, q?.explanation ?? '') as HTMLTextAreaElement;
+    let image: string | null = q?.image ?? null;
+    const imgPrev = h('div', { class: 'row', style: 'gap:8px;align-items:center' });
+    const imgFile = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', class: 'in', 'data-field': 'image' }) as HTMLInputElement;
+    const showImg = (): void =>
+      imgPrev.replaceChildren(
+        ...(image
+          ? [h('img', { src: image, alt: 'Gambar soal', style: 'max-height:120px;max-width:220px;border-radius:10px;border:1px solid #dbe7f5' }), btn('Hapus gambar', 'putih kecil', () => {
+              image = null;
+              showImg();
+            })]
+          : [h('span', { class: 'muted' }, 'Tanpa gambar')]),
+      );
+    imgFile.addEventListener('change', async () => {
+      const f = imgFile.files?.[0];
+      if (!f) return;
+      try {
+        image = await shrinkImage(f);
+        showImg();
+      } catch {
+        toast('Gambar tidak dapat dipakai (terlalu besar atau rusak)', true);
+      }
+    });
+    showImg();
     // isian per tipe
     const opts = h('textarea', { class: 'in', placeholder: 'Satu opsi per baris (2–5 opsi)' }, q?.type === 'pg' ? q.options.join('\n') : '') as HTMLTextAreaElement;
     const pgKey = h('input', { class: 'in', type: 'number', min: '1', max: '5', value: q?.key.type === 'pg' ? String(q.key.index + 1) : '1' }) as HTMLInputElement;
@@ -116,7 +179,7 @@ export async function questionsView(): Promise<HTMLElement> {
         right = rows.map((r) => r[1]!);
         key = { type: 'jodoh', pairs: rows.map((_, i) => i) };
       }
-      return { subject: subject.value, grade: Number(grade.value), phase: Number(grade.value) <= 2 ? 'A' : Number(grade.value) <= 4 ? 'B' : 'C', topic: topic.value.trim(), learningOutcome: q?.learningOutcome ?? '', type: t, prompt: prompt.value.trim(), options, right, key, explanation: explanation.value.trim(), difficulty: difficulty.value as Q['difficulty'], points: Number(points.value), world: q?.world ?? 'semua' };
+      return { subject: subject.value, grade: Number(grade.value), phase: Number(grade.value) <= 2 ? 'A' : Number(grade.value) <= 4 ? 'B' : 'C', topic: topic.value.trim(), learningOutcome: q?.learningOutcome ?? '', type: t, prompt: prompt.value.trim(), options, right, key, explanation: explanation.value.trim(), difficulty: difficulty.value as Q['difficulty'], points: Number(points.value), world: q?.world ?? 'semua', image };
     };
     const m = modal(
       h(
@@ -125,6 +188,7 @@ export async function questionsView(): Promise<HTMLElement> {
         h('h2', null, q ? 'Ubah Soal' : 'Tambah Soal'),
         h('div', { class: 'grid', style: 'grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px' }, h('label', { class: 'f' }, 'Mata pelajaran', subject), h('label', { class: 'f' }, 'Kelas', grade), h('label', { class: 'f' }, 'Tipe soal', type), h('label', { class: 'f' }, 'Topik', topic), h('label', { class: 'f' }, 'Poin', points), h('label', { class: 'f' }, 'Tingkat kesulitan', difficulty)),
         h('label', { class: 'f' }, 'Pertanyaan', prompt),
+        h('label', { class: 'f' }, 'Gambar (opsional, otomatis diperkecil)', imgFile, imgPrev),
         perWrap,
         h('label', { class: 'f' }, 'Pembahasan (ditampilkan setelah menjawab)', explanation),
         err,
@@ -174,7 +238,14 @@ export async function questionsView(): Promise<HTMLElement> {
           const fd = new FormData();
           fd.append('file', f);
           const r = await api<{ filename: string; total: number; valid: number; duplicates: number; rows: { row: number; question: QIn; errors: string[]; duplicate: boolean }[] }>('/questions/import/preview', { method: 'POST', body: fd });
-          const skip = h('input', { type: 'checkbox', checked: true }) as HTMLInputElement;
+          const dupMode = h(
+            'select',
+            { class: 'in', style: 'max-width:420px', 'data-field': 'duplicateMode' },
+            h('option', { value: 'lewati' }, 'Lewati soal duplikat (soal lama tidak berubah)'),
+            h('option', { value: 'perbarui' }, 'Perbarui soal lama dengan isi dari file (kunci, pembahasan, poin, …)'),
+            h('option', { value: 'tambah' }, 'Tetap simpan sebagai soal baru'),
+          ) as HTMLSelectElement;
+          const progress = h('div', { class: 'muted', style: 'font-weight:800' });
           const good = r.rows.filter((x) => !x.errors.length);
           out.replaceChildren(
             h('div', { class: 'row' }, h('span', { class: 'chip biru' }, `${r.total} baris`), h('span', { class: 'chip hijau' }, `${r.valid} valid`), h('span', { class: 'chip oranye' }, `${r.duplicates} duplikat`), h('span', { class: 'chip abu' }, `${r.total - r.valid} bermasalah`)),
@@ -188,11 +259,26 @@ export async function questionsView(): Promise<HTMLElement> {
                 h('tbody', null, ...r.rows.map((x) => h('tr', { class: `preview-row${x.errors.length ? ' bad' : x.duplicate ? ' dup' : ''}` }, h('td', null, String(x.row)), h('td', null, x.question.prompt), h('td', null, TYPE_LABEL[x.question.type] ?? x.question.type), h('td', null, x.errors.length ? '—' : keyText(x.question)), h('td', null, x.errors.length ? h('span', { class: 'err' }, x.errors.join(' · ')) : x.duplicate ? 'Duplikat' : 'OK')))),
               ),
             ),
-            h('label', { class: 'check' }, skip, 'Lewati soal duplikat'),
+            h('label', { class: 'f' }, 'Soal duplikat', dupMode),
+            progress,
             btn(`Simpan ${good.length} soal valid ke bank`, 'hijau', async () => {
               if (!good.length) return toast('Tidak ada soal valid untuk disimpan', true);
-              const res = await api<{ inserted: number; skipped: number }>('/questions/import/commit', { method: 'POST', json: { filename: r.filename, questions: good.map((x) => x.question), skipDuplicates: skip.checked } });
-              toast(`${res.inserted} soal disimpan, ${res.skipped} dilewati`);
+              // dikirim per 500 soal: jumlah soal dalam satu file tidak dibatasi; baris bermasalah tidak ikut & soal lama aman
+              const total = { inserted: 0, updated: 0, skipped: 0 };
+              const qs = good.map((x) => x.question);
+              for (let i = 0; i < qs.length; ) {
+                // maks 500 soal atau ±8 MB per kiriman (soal bergambar lebih besar)
+                let j = i;
+                let bytes = 0;
+                while (j < qs.length && j - i < 500 && (j === i || bytes + JSON.stringify(qs[j]).length < 8_000_000)) bytes += JSON.stringify(qs[j++]).length;
+                progress.textContent = `Menyimpan ${j}/${qs.length}…`;
+                const res = await api<{ inserted: number; updated?: number; skipped: number }>('/questions/import/commit', { method: 'POST', json: { filename: r.filename, questions: qs.slice(i, j), duplicateMode: dupMode.value } });
+                i = j;
+                total.inserted += res.inserted;
+                total.updated += res.updated ?? 0;
+                total.skipped += res.skipped;
+              }
+              toast(`${total.inserted} soal baru, ${total.updated} diperbarui, ${total.skipped} dilewati · ${r.total - good.length} baris bermasalah tidak diimpor`);
               m.close();
               await refresh();
             }),
@@ -215,7 +301,7 @@ export async function questionsView(): Promise<HTMLElement> {
       void load();
     }, 300);
   });
-  const sel = (key: 'subject' | 'grade' | 'type', first: string, opts: [string, string][]) => {
+  const sel = (key: 'subject' | 'grade' | 'type' | 'source' | 'difficulty', first: string, opts: [string, string][]) => {
     const s = h('select', { class: 'in', style: 'max-width:220px' }, h('option', { value: '' }, first), ...opts.map(([v, l]) => h('option', { value: v }, l))) as HTMLSelectElement;
     s.addEventListener('change', () => {
       state[key] = s.value;
@@ -235,9 +321,15 @@ export async function questionsView(): Promise<HTMLElement> {
       h('h1', { class: 'grow' }, 'Bank Soal'),
       btn('+ Tambah Soal', 'hijau', () => editor()),
       btn('Impor Word/Excel', 'biru', () => importer()),
-      btn('Muat Soal Contoh', 'kuning', async () => {
+      btn('Muat Soal Bawaan', 'kuning', async () => {
         const r = await api<{ inserted?: number }>('/questions/sample', { method: 'POST' });
-        toast(`Soal contoh dimuat${r.inserted !== undefined ? ` (${r.inserted})` : ''}`);
+        toast(`Soal bawaan EDUVERSE dimuat${r.inserted !== undefined ? ` (${r.inserted})` : ''} — hanya dipakai bila sesi memilih sumber "Soal Bawaan" atau "Gabungan"`);
+        await refresh();
+      }),
+      btn('Hapus Soal Bawaan', 'putih', async () => {
+        if (!confirm('Hapus semua soal bawaan EDUVERSE dari bank Anda? Soal buatan Anda tidak terhapus, dan hasil sesi lama tetap utuh.')) return;
+        const r = await api<{ deleted: number }>('/questions/delete-bawaan', { method: 'POST' });
+        toast(`${r.deleted} soal bawaan dihapus`);
         await refresh();
       }),
     ),
@@ -252,6 +344,8 @@ export async function questionsView(): Promise<HTMLElement> {
         sel('subject', 'Semua mapel', SUBJECTS.map((s) => [s, s])),
         sel('grade', 'Semua kelas', [1, 2, 3, 4, 5, 6].map((g) => [String(g), `Kelas ${g}`])),
         sel('type', 'Semua tipe', Object.entries(TYPE_LABEL)),
+        sel('source', 'Semua asal', [['guru', 'Soal guru'], ['bawaan', 'Soal bawaan']]),
+        sel('difficulty', 'Semua kesulitan', [['mudah', 'Mudah'], ['sedang', 'Sedang'], ['sulit', 'Sulit']]),
         h('div', { class: 'grow' }),
         btn('Hapus Terpilih', 'merah kecil', async () => {
           if (!selected.size) return toast('Belum ada soal terpilih', true);
