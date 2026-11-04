@@ -253,15 +253,28 @@ try {
 
   if (!process.env.FAST) await step('Perangkat lain (HP landscape) melihat gerakan pemain A di Kota', async () => {
     await B.page.waitForFunction(() => window.__edu.others.some((o) => o.nama === 'Ayu'), null, { timeout: 15000 });
-    const before = (await B.edu()).others.find((o) => o.nama === 'Ayu');
-    await A.joy(0, -60, 1500);
-    await A.joy(60, 0, 1200);
+    // Posisi akhir A setelah jelajah bisa menempel rintangan (mis. pintu menara alun-alun); pindah ke tanah lapang
+    // bila joystick tertahan. Yang diuji: B melihat A berpindah DAN posisi yang dilihat B = posisi A sebenarnya.
+    let before;
+    let moved = 0;
+    for (let attempt = 0; attempt < 2 && moved < 3; attempt++) {
+      if (attempt) await A.goTo(14, 16, null, 30000);
+      before = (await B.edu()).others.find((o) => o.nama === 'Ayu');
+      const a0 = (await A.edu()).pos;
+      await A.joy(0, -60, 1500);
+      await A.joy(60, 0, 1200);
+      const a1 = (await A.edu()).pos;
+      moved = Math.hypot(a1.x - a0.x, a1.z - a0.z);
+    }
     await B.page.waitForTimeout(800);
     const after = (await B.edu()).others.find((o) => o.nama === 'Ayu');
+    const real = (await A.edu()).pos;
     const d = Math.hypot(after.x - before.x, after.z - before.z);
-    if (d < 3) throw new Error(`B melihat A bergeser ${d.toFixed(1)} m saja`);
+    const lag = Math.hypot(after.x - real.x, after.z - real.z);
+    if (d < 3) throw new Error(`B melihat A bergeser ${d.toFixed(1)} m saja (A sendiri bergerak ${moved.toFixed(1)} m)`);
+    if (lag > 1.5) throw new Error(`posisi A di layar B meleset ${lag.toFixed(1)} m dari posisi sebenarnya`);
     if (SHOTS) await B.page.screenshot({ path: `${SHOTS}/t-kota-landscape-B.png` });
-    return `B melihat A berpindah ${d.toFixed(1)} m`;
+    return `B melihat A berpindah ${d.toFixed(1)} m (selisih dengan posisi asli ${lag.toFixed(1)} m)`;
   });
 
   if (!process.env.FAST) await step('Buka/tutup Peta, Tas, Menu → joystick masih jalan, dialog tidak keluar layar', async () => {
