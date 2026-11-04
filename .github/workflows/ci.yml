@@ -109,6 +109,14 @@ jobs:
         run: node tests/e2e/worlds.mjs
         env:
           SHOTS: e2e-shots
+      - name: UI responsif 9 resolusi + joystick sentuh nyata + rotasi + keyboard
+        run: node tests/e2e/responsive.mjs
+        env:
+          SHOTS: e2e-shots
+      - name: Gerak sentuh 4 dunia, 20 avatar, dialog, berenang, lompat, putus-sambung koneksi, musik
+        run: node tests/e2e/touch-worlds.mjs
+        env:
+          SHOTS: e2e-shots
       - name: Bank Soal Guru (sumber soal, impor Excel/Word, duplikat, pilih/acak, gambar, riwayat)
         run: node tests/integration/question-bank.mjs
       - run: node tests/security/abuse.mjs

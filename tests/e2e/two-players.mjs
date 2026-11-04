@@ -278,8 +278,10 @@ try {
     await a.page.evaluate(() => window.__eduDebug.action());
     await a.page.waitForFunction(() => window.__edu.mobility?.mode !== 'jalan', null, { timeout: 8000 });
     const id = (await edu(a.page)).mobility.vehicle.id;
+    // offline lebih lama dari batas heartbeat (20 + 25 dtk) → koneksi benar-benar putus & jalur sambung ulang diuji
+    // (jeda < 45 dtk kini sengaja tidak memutus permainan sama sekali)
     await a.page.context().setOffline(true);
-    await a.page.waitForTimeout(30000);
+    await a.page.waitForTimeout(52000);
     await a.page.context().setOffline(false);
     await a.page.waitForFunction(() => window.__edu.mobility?.mode === 'jalan' && window.__edu.scene === 'kota', null, { timeout: 40000 });
     await a.page.waitForFunction((vid) => window.__edu.vehicles.some((v) => v.id === vid && !v.driver), id, { timeout: 10000 });

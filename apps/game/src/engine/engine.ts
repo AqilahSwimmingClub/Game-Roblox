@@ -104,7 +104,9 @@ export class Engine {
       if (!this.running) return;
       requestAnimationFrame(loop);
       const now = performance.now();
-      const dt = Math.min(0.1, (now - this.last) / 1000);
+      // batas 0,2 dtk: di perangkat lemah (< 10 fps) karakter tetap berjalan dengan kecepatan nyata;
+      // fisika memecah gerak per 0,3 m sehingga tidak menembus dinding
+      const dt = Math.min(0.2, (now - this.last) / 1000);
       this.last = now;
       this.clock.t += dt;
       if (document.hidden) return;

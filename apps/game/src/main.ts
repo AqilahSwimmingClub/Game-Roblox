@@ -563,7 +563,7 @@ net.socket.on('disconnect', (reason) => {
   offlineTimer = window.setTimeout(() => {
     if (net.connected || !me || offlineBanner) return;
     lockInput('koneksi', true);
-    offlineBanner = blocker('Menyambung ulang…', 'Koneksi ke server EDUVERSE sedang tersambung kembali secara otomatis. Posisi, poin, dan tasmu aman.', { label: 'Muat Ulang', fn: () => location.reload() });
+    offlineBanner = blocker('Koneksi terputus', 'Menyambung ulang ke server EDUVERSE secara otomatis… Posisi, poin, dan tasmu aman.', { label: 'Muat Ulang', fn: () => location.reload() });
   }, 2500);
 });
 net.socket.on('connect', () => {
