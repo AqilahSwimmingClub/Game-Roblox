@@ -88,16 +88,26 @@ async function device(browser, name, w, h) {
     if (camGap > 30) throw new Error(`kamera tertinggal ${camGap.toFixed(1)} m dari avatar`);
     return `${total.toFixed(0)} m (${d.map((x) => x.toFixed(0)).join('/')}) · kamera ${camGap.toFixed(1)} m di belakang avatar`;
   };
+  /** Teks dialog (.screen) yang sedang menutupi layar — untuk diagnosis bila joystick tidak sampai ke kanvas. */
+  const screens = () => page.evaluate(() => [...document.querySelectorAll('#ui > .screen')].map((n) => (n.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 80)));
+  /** Berjalan dengan joystick bisa memasuki pusaran Gerbang Antardunia (dialog terbuka sendiri, seperti pemain asli): tutup. */
+  const closeWorldDialogs = async () => {
+    if (await page.locator('[data-gate]').count()) {
+      await page.getByRole('button', { name: 'Tutup' }).last().tap();
+      await page.waitForFunction(() => !document.querySelector('[data-gate]') && !window.__edu.input.locks.length, null, { timeout: 5000 }).catch(() => undefined);
+    }
+  };
   const mustMove = async (what) => {
     for (const [dx, dy] of [
       [0, -60],
       [60, 0],
       [0, 60],
     ]) {
+      await closeWorldDialogs();
       const d = await joy(dx, dy, 1200);
       if (d >= 2) return `${what}: joystick ${d.toFixed(1)} m`;
     }
-    throw new Error(`${what}: joystick tidak menggerakkan karakter · ${JSON.stringify((await edu()).input)}`);
+    throw new Error(`${what}: joystick tidak menggerakkan karakter · ${JSON.stringify((await edu()).input)} · dialog: ${JSON.stringify(await screens())}`);
   };
   /** Semua tombol dialog yang terlihat ada di dalam layar & tidak ada scroll horizontal. */
   const noOverflow = async (label) => {
@@ -173,7 +183,7 @@ try {
   const B = await device(browser, 'B', 873, 393); // HP landscape
   shotOnFail = async (n) => {
     await A.page.screenshot({ path: `${SHOTS}/t-${n}.png` });
-    console.log('    keadaan A:', JSON.stringify(await A.page.evaluate(() => ({ scene: window.__edu.scene, pos: window.__edu.pos, env: window.__edu.env, input: window.__edu.input, net: window.__edu.net, layar: [...document.querySelectorAll('.screen')].map((e) => e.id || e.className) }))));
+    console.log('    keadaan A:', JSON.stringify(await A.page.evaluate(() => ({ scene: window.__edu.scene, pos: window.__edu.pos, env: window.__edu.env, input: window.__edu.input, net: window.__edu.net, layar: [...document.querySelectorAll('.screen')].map((e) => (e.id || e.className) + ': ' + (e.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 70)) }))));
   };
   await join(A, sess.code, 31, 'Ayu', 0);
   await join(B, sess.code, 32, 'Budi', 5);
