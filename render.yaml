@@ -18,10 +18,17 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
+      # Basis data = Supabase PostgreSQL (proyek "Game-Roblox", skema & RLS sudah diterapkan).
+      # Isi sendiri di Render (rahasia): Supabase → Connect → Session pooler (port 5432), contoh
+      # postgresql://postgres.fyketyvfskzirnfayqnx:<KATA-SANDI-DB>@aws-0-ap-south-1.pooler.supabase.com:5432/postgres
       - key: DATABASE_URL
-        fromDatabase:
-          name: eduverse-db
-          property: connectionString
+        sync: false
+      - key: PGSSL
+        value: '1'
+      - key: PGSSL_STRICT # '0' = terenkripsi tanpa verifikasi CA; isi PGSSL_CA (sertifikat Supabase) lalu hapus baris ini untuk verifikasi penuh
+        value: '0'
+      - key: PG_POOL_MAX # Supabase Free: batasi koneksi
+        value: '8'
       - key: PUBLIC_URL # tautan undangan & QR mengarah ke game di Vercel
         value: https://eduverse-web-preview.vercel.app
       - key: CORS_ORIGINS # frontend yang boleh memanggil server ini (produksi + preview Vercel)
@@ -31,9 +38,4 @@ services:
       - key: TEACHER_REGISTRATION_CODE # isi sendiri di Render (rahasia) — guru pertama boleh daftar tanpa kode
         sync: false
 
-databases:
-  - name: eduverse-db
-    region: singapore
-    plan: free # perhatian: Postgres gratis Render berlaku terbatas (lihat docs/DEPLOYMENT.md)
-    databaseName: eduverse
-    user: eduverse
+# Basis data tidak lagi dibuat di Render (PostgreSQL gratis Render kedaluwarsa): memakai Supabase PostgreSQL (paket Free).

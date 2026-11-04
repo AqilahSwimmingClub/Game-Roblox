@@ -25,6 +25,15 @@ import {
   DEFAULT_AVATAR,
   isWorldId,
   WORLDS,
+  MODE_CODE,
+  MODE_LIMITS,
+  VEHICLE_SPEC,
+  KOTA_WORLD_HALF,
+  riftExit,
+  type MoveMode,
+  type VehicleKind,
+  type VehicleStateMsg,
+  type CompactPlayer,
   type AvatarConfig,
   type SessionSettings,
   type SessionStatus,
@@ -128,6 +137,16 @@ interface Player {
   emote: number;
   emoteUntil: number;
   riding: boolean;
+  /** Mode gerak yang dicatat SERVER (bukan klaim klien): jalan, kendaraan, jetpack. */
+  mode: MoveMode;
+  vehicleId: string | null;
+  vehicleColor: number;
+  hasJetpack: boolean;
+  /** Kecepatan maks mode sebelumnya tetap berlaku sebentar setelah ganti mode (mis. turun dari motor yang masih meluncur). */
+  graceSpeed: number;
+  graceUntil: number;
+  tp: number;
+  lastRiftAt: number;
   lastStateAt: number;
   violations: number;
   known: Set<string>; // pemain lain yang metadatanya sudah dikirim
@@ -285,6 +304,14 @@ export class SessionRuntime {
       emote: -1,
       emoteUntil: 0,
       riding: false,
+      mode: 'jalan',
+      vehicleId: null,
+      vehicleColor: 0,
+      hasJetpack: false,
+      graceSpeed: 0,
+      graceUntil: 0,
+      tp: 0,
+      lastRiftAt: 0,
       lastStateAt: Date.now(),
       violations: 0,
       known: new Set(),
@@ -445,6 +472,7 @@ export class SessionRuntime {
   detach(socket: Socket) {
     const p = this.players.get(socket.id);
     if (!p) return;
+    this.releaseVehicle(p);
     if (p.student && p.student.socketId === socket.id) {
       p.student.socketId = null;
       p.student.lastScene = p.scene;
@@ -457,7 +485,7 @@ export class SessionRuntime {
 
   // ───────────────────────────── adegan & gerak ─────────────────────────────
 
-  enterScene(socket: Socket, scene: SceneId): { ok: true; spawn: { x: number; y: number; z: number }; points?: ActivePoint[]; done?: string[] } | { ok: false; error: string } {
+  enterScene(socket: Socket, scene: SceneId): { ok: true; spawn: { x: number; y: number; z: number }; points?: ActivePoint[]; done?: string[]; vehicles?: VehicleStateMsg[]; jetpack?: boolean } | { ok: false; error: string } {
     const p = this.players.get(socket.id);
     if (!p?.student) return { ok: false, error: 'Pilih identitas dahulu.' };
     if (!p.student.approved) return { ok: false, error: 'Menunggu persetujuan guru.' };
@@ -468,6 +496,10 @@ export class SessionRuntime {
     }
     if (p.scene !== 'lobi' && p.scene !== 'podium') void socket.leave(this.worldRoom(p.scene));
     if (p.pending) p.pending = null;
+    this.releaseVehicle(p);
+    p.mode = 'jalan';
+    p.riding = false;
+    p.tp++;
     const prev = p.student.lastScene === scene ? p.student.lastPos : null;
     p.scene = scene;
     p.known.clear();
@@ -491,7 +523,8 @@ export class SessionRuntime {
     if (isWorldId(scene)) {
       void socket.join(this.worldRoom(scene));
       const w = this.ensureWorld(scene);
-      return { ok: true, spawn, points: this.pointList(w), done: this.doneList(p.student) };
+      if (scene === 'kota') setTimeout(() => this.emitVehicles(p.instance), 0);
+      return { ok: true, spawn, points: this.pointList(w), done: this.doneList(p.student), vehicles: scene === 'kota' ? this.vehicleList(p.instance) : [], jetpack: p.hasJetpack };
     }
     return { ok: true, spawn };
   }
@@ -509,21 +542,30 @@ export class SessionRuntime {
     if (m.scene !== p.scene) return; // paket basi dari adegan sebelumnya
     const now = Date.now();
     const dt = Math.min(2, Math.max(0.05, (now - p.lastStateAt) / 1000));
-    const riding = m.riding === true;
-    const maxSpeed = riding ? LIMITS.maxBusSpeed : LIMITS.maxRunSpeed;
+    // Penumpang Bus Kota hanya bisa diklaim saat berjalan kaki; kendaraan & jetpack dicatat server lewat event tersendiri.
+    const riding = m.riding === true && p.mode === 'jalan';
+    const mode: MoveMode = riding ? 'penumpang' : p.mode;
+    const lim = MODE_LIMITS[mode];
+    const maxSpeed = Math.max(lim.maxSpeed, now < p.graceUntil ? p.graceSpeed : 0);
     const horiz = Math.hypot(x - p.x, z - p.z);
-    const half = p.scene === 'lobi' ? 46 : p.scene === 'podium' ? 40 : 610;
+    const half = p.scene === 'lobi' ? 46 : p.scene === 'podium' ? 40 : KOTA_WORLD_HALF + 10;
     const tooFast = horiz > maxSpeed * dt * 1.35 + 1.5;
-    const outside = Math.abs(x) > half || Math.abs(z) > half || y > 260;
+    const outside = Math.abs(x) > half || Math.abs(z) > half || y > lim.maxY + 5;
     const fell = y < -40;
     if (tooFast || outside || fell) {
       p.violations++;
       const back = fell || outside ? this.safeSpawn(p.scene) : { x: p.x, y: p.y, z: p.z };
+      if (fell || outside) {
+        // jatuh / keluar batas: lepaskan kendaraan agar tidak "terbawa" ke titik aman
+        this.releaseVehicle(p);
+        p.mode = 'jalan';
+      }
       p.x = back.x;
       p.y = back.y;
       p.z = back.z;
+      p.tp++;
       p.lastStateAt = now;
-      socket.emit(EV.teleport, { ...back, reason: fell || outside ? 'pulih' : 'koreksi' });
+      socket.emit(EV.teleport, { ...back, reason: fell || outside ? 'pulih' : 'koreksi', mode: p.mode });
       return;
     }
     p.x = x;
@@ -533,6 +575,169 @@ export class SessionRuntime {
     p.anim = Math.max(0, Math.min(6, Math.trunc(num(m.anim) || 0)));
     p.riding = riding;
     p.lastStateAt = now;
+  }
+
+  // ───────────────────────────── kendaraan, jetpack, lubang dimensi ─────────────────────────────
+
+  private vehicleSets = new Map<number, Map<string, VehicleStateMsg & { idleSince: number }>>();
+
+  private vehiclesOf(instance: number) {
+    let set = this.vehicleSets.get(instance);
+    if (!set) {
+      set = new Map();
+      for (const v of buildKota().living.vehicles) set.set(v.id, { id: v.id, kind: v.kind, x: v.x, y: v.y, z: v.z, heading: v.heading, color: v.color, driver: null, idleSince: Date.now() });
+      this.vehicleSets.set(instance, set);
+    }
+    return set;
+  }
+
+  vehicleList(instance: number): VehicleStateMsg[] {
+    return [...this.vehiclesOf(instance).values()].map(({ idleSince: _i, ...v }) => v);
+  }
+
+  private emitVehicles(instance: number) {
+    const list = this.vehicleList(instance);
+    for (const o of this.players.values()) if (o.scene === 'kota' && o.instance === instance) o.socket.emit(EV.vehicles, list);
+  }
+
+  /** Lepaskan kendaraan yang sedang dikendarai: kendaraan tetap diparkir di posisi terakhir yang sah. */
+  private releaseVehicle(p: Player) {
+    if (!p.vehicleId) return;
+    const v = this.vehiclesOf(p.instance).get(p.vehicleId);
+    if (v && v.driver === p.socket.id) {
+      v.driver = null;
+      v.x = p.x;
+      v.y = v.kind === 'pesawat' ? Math.min(p.y, 0.05) : Math.max(0, p.y);
+      v.z = p.z;
+      v.heading = p.ry;
+      v.idleSince = Date.now();
+    }
+    p.graceSpeed = MODE_LIMITS[p.mode].maxSpeed;
+    p.graceUntil = Date.now() + 2500;
+    p.vehicleId = null;
+    p.mode = 'jalan';
+    this.emitVehicles(p.instance);
+  }
+
+  enterVehicle(socket: Socket, id: unknown): { ok: true; vehicle: VehicleStateMsg } | { ok: false; error: string } {
+    const p = this.players.get(socket.id);
+    if (!p?.student || p.scene !== 'kota') return { ok: false, error: 'Tidak ada kendaraan di sini.' };
+    if (p.mode !== 'jalan' || p.riding) return { ok: false, error: 'Turun dulu dari kendaraanmu.' };
+    if (p.pending) return { ok: false, error: 'Selesaikan soal dulu.' };
+    const v = typeof id === 'string' ? this.vehiclesOf(p.instance).get(id) : undefined;
+    if (!v) return { ok: false, error: 'Kendaraan tidak ditemukan.' };
+    if (v.driver && v.driver !== socket.id) {
+      if (this.players.has(v.driver)) return { ok: false, error: 'Kendaraan ini sedang dipakai teman.' };
+      v.driver = null;
+    }
+    const spec = VEHICLE_SPEC[v.kind as VehicleKind];
+    if (Math.hypot(p.x - v.x, p.z - v.z) > spec.interact + 2 || Math.abs(p.y - v.y) > 3) return { ok: false, error: 'Mendekatlah ke kendaraan.' };
+    v.driver = socket.id;
+    p.vehicleId = v.id;
+    p.vehicleColor = v.color;
+    p.mode = v.kind as MoveMode;
+    p.x = v.x;
+    p.y = v.y;
+    p.z = v.z;
+    p.ry = v.heading;
+    p.lastStateAt = Date.now();
+    this.emitVehicles(p.instance);
+    const { idleSince: _i, ...out } = v;
+    return { ok: true, vehicle: out };
+  }
+
+  exitVehicle(socket: Socket, raw: unknown): { ok: true; x: number; y: number; z: number } | { ok: false; error: string } {
+    const p = this.players.get(socket.id);
+    if (!p?.student) return { ok: false, error: 'Belum bergabung.' };
+    if (!p.vehicleId) return { ok: true, x: p.x, y: p.y, z: p.z };
+    const m = (raw ?? {}) as Record<string, unknown>;
+    const n = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+    let x = n(m.x, p.x);
+    let y = n(m.y, p.y);
+    let z = n(m.z, p.z);
+    // Titik turun harus di samping kendaraan (≤ 8 m) — selain itu pakai posisi kendaraan.
+    if (Math.hypot(x - p.x, z - p.z) > 8 || Math.abs(y - p.y) > 6) {
+      x = p.x;
+      y = p.y + 0.5;
+      z = p.z;
+    }
+    this.releaseVehicle(p);
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    p.lastStateAt = Date.now();
+    return { ok: true, x, y, z };
+  }
+
+  setJetpack(socket: Socket, raw: unknown): { ok: true; on: boolean } | { ok: false; error: string } {
+    const p = this.players.get(socket.id);
+    if (!p?.student || p.scene !== 'kota') return { ok: false, error: 'Jetpack hanya ada di Dunia Kota.' };
+    const m = (raw ?? {}) as { on?: unknown; stationId?: unknown };
+    if (m.on === true) {
+      if (p.vehicleId) return { ok: false, error: 'Turun dari kendaraan dulu.' };
+      if (!p.hasJetpack) {
+        const st = buildKota().living.jetpacks.find((j) => j.id === m.stationId);
+        if (!st || Math.hypot(p.x - st.x, p.z - st.z) > 5 || Math.abs(p.y - st.y) > 4) return { ok: false, error: 'Ambil jetpack di Stasiun Jetpack.' };
+        p.hasJetpack = true;
+      }
+      p.mode = 'jetpack';
+      return { ok: true, on: true };
+    }
+    if (p.mode === 'jetpack') {
+      p.mode = 'jalan';
+      p.graceSpeed = MODE_LIMITS.jetpack.maxSpeed;
+      p.graceUntil = Date.now() + 2500;
+    }
+    return { ok: true, on: false };
+  }
+
+  useRift(socket: Socket, riftId: unknown): { ok: true; target: { x: number; y: number; z: number; ry: number }; nama: string } | { ok: false; error: string } {
+    const p = this.players.get(socket.id);
+    if (!p?.student || p.scene !== 'kota') return { ok: false, error: 'Lubang dimensi tidak aktif di sini.' };
+    const rifts = buildKota().living.rifts;
+    const r = rifts.find((x) => x.id === riftId);
+    if (!r) return { ok: false, error: 'Lubang dimensi tidak dikenal.' };
+    if (p.vehicleId) return { ok: false, error: 'Turun dari kendaraan sebelum masuk lubang dimensi.' };
+    if (p.pending) return { ok: false, error: 'Selesaikan soal dulu.' };
+    if (Math.hypot(p.x - r.x, p.z - r.z) > 4 || Math.abs(p.y - r.y) > 4) return { ok: false, error: 'Mendekatlah ke lubang dimensi.' };
+    const now = Date.now();
+    if (now - p.lastRiftAt < 2500) return { ok: false, error: 'Lubang dimensi sedang mengisi energi…' };
+    const dest = rifts.find((x) => x.id === r.to);
+    if (!dest) return { ok: false, error: 'Tujuan belum tersedia.' };
+    const out = riftExit(dest);
+    p.lastRiftAt = now;
+    p.x = out.x;
+    p.y = out.y;
+    p.z = out.z;
+    p.ry = out.ry;
+    p.tp++;
+    p.lastStateAt = now;
+    return { ok: true, target: out, nama: dest.nama };
+  }
+
+  /** Kendaraan yang ditinggal jauh dari tempat parkirnya > 4 menit kembali sendiri (tidak menumpuk/terjebak). */
+  private tidyVehicles() {
+    const now = Date.now();
+    const home = new Map(buildKota().living.vehicles.map((v) => [v.id, v]));
+    for (const [inst, set] of this.vehicleSets) {
+      let changed = false;
+      for (const v of set.values()) {
+        if (v.driver && !this.players.has(v.driver)) {
+          v.driver = null;
+          v.idleSince = now;
+          changed = true;
+        }
+        const h = home.get(v.id);
+        if (!v.driver && h && now - v.idleSince > 240_000 && Math.hypot(v.x - h.x, v.z - h.z) > 3) {
+          v.x = h.x;
+          v.y = h.y;
+          v.z = h.z;
+          v.heading = h.heading;
+          changed = true;
+        }
+      }
+      if (changed) this.emitVehicles(inst);
+    }
   }
 
   safeSpawn(scene: SceneId) {
@@ -555,9 +760,11 @@ export class SessionRuntime {
     if (!lift) return { ok: false, error: 'Lift tidak ditemukan.' };
     if (Math.hypot(p.x - lift.x, p.z - lift.z) > LIMITS.interactDistance + 2) return { ok: false, error: 'Mendekatlah ke lift.' };
     if (lift.locked && p.student.correct < 3) return { ok: false, error: 'Lift terkunci. Jawab 3 soal dengan benar untuk membukanya.' };
+    if (p.vehicleId) return { ok: false, error: 'Turun dari kendaraan dulu.' };
     p.x = lift.target.x;
     p.y = lift.target.y;
     p.z = lift.target.z;
+    p.tp++;
     p.lastStateAt = Date.now();
     return { ok: true, target: lift.target };
   }
@@ -572,7 +779,10 @@ export class SessionRuntime {
     const spawns = w === 'kota' ? buildKota().spawns : [];
     // Kepadatan: aktifkan sebagian titik di tiap zona (dipilih acak, merata per zona)
     const byZone = new Map<string, SpawnMarker[]>();
-    for (const s of spawns) byZone.set(s.zone, [...(byZone.get(s.zone) ?? []), s]);
+    for (const s of spawns) {
+      if (s.always) wp.active.set(s.id, { ...s, surprise: false });
+      else byZone.set(s.zone, [...(byZone.get(s.zone) ?? []), s]);
+    }
     for (const list of byZone.values()) {
       const n = Math.max(4, Math.round(list.length * this.settings.density));
       for (const i of shuffled(list.length).slice(0, n)) {
@@ -597,9 +807,14 @@ export class SessionRuntime {
     return out;
   }
 
-  private async nextQuestion(w: WorldId, wp: WorldPoints, s: Student): Promise<QuestionRecord | null> {
+  private async nextQuestion(w: WorldId, wp: WorldPoints, s: Student, preferSubject: string | null = null): Promise<QuestionRecord | null> {
     for (let round = 0; round < 50; round++) {
       const pool = wp.pool;
+      // Misi kontekstual (mis. pedagang pasar → Matematika): utamakan mapel yang cocok bila ada di bank soal guru.
+      if (preferSubject && pool.length) {
+        const pick = pool.find((q) => q.subject === preferSubject && !s.seen.has(q.id));
+        if (pick) return pick;
+      }
       if (pool.length) {
         for (let k = 0; k < pool.length; k++) {
           const q = pool[(s.cursor + k) % pool.length]!;
@@ -653,7 +868,7 @@ export class SessionRuntime {
     if (p.student.done.has(pt.id)) return { ok: false, error: 'Kamu sudah menyelesaikan titik ini.' };
     if (this.settings.questionMode === 'jumlah' && p.student.answered >= this.settings.questionCount)
       return { ok: false, error: `Hebat! Kamu sudah menjawab ${this.settings.questionCount} soal.` };
-    const q = await this.nextQuestion(p.scene, wp, p.student);
+    const q = await this.nextQuestion(p.scene, wp, p.student, pt.always ? pt.subject : null);
     if (!q) return { ok: false, error: 'Semua soal sudah kamu jawab. Hebat!' };
     p.interactTimes.push(now);
     p.student.seen.add(q.id);
@@ -1015,11 +1230,12 @@ export class SessionRuntime {
         const ids = new Set(vis.map((v) => v.o.socket.id));
         const gone = [...p.known].filter((id) => !ids.has(id));
         for (const g of gone) p.known.delete(g);
-        const out: (RemotePlayer | [string, number, number, number, number, number, number])[] = vis.map(({ o }) => {
+        const out: (RemotePlayer | CompactPlayer)[] = vis.map(({ o }) => {
           const r2 = (v: number) => Math.round(v * 100) / 100;
-          if (p.known.has(o.socket.id)) return [o.socket.id, r2(o.x), r2(o.y), r2(o.z), r2(o.ry), o.anim, o.emote];
+          const mode = MODE_CODE[o.riding ? 'penumpang' : o.mode];
+          if (p.known.has(o.socket.id)) return [o.socket.id, r2(o.x), r2(o.y), r2(o.z), r2(o.ry), o.anim, o.emote, mode, o.tp, o.vehicleColor];
           p.known.add(o.socket.id);
-          return { id: o.socket.id, nama: o.student!.nama, absen: o.student!.absen, avatar: o.student!.avatar, x: o.x, y: o.y, z: o.z, ry: o.ry, anim: o.anim, emote: o.emote };
+          return { id: o.socket.id, nama: o.student!.nama, absen: o.student!.absen, avatar: o.student!.avatar, x: o.x, y: o.y, z: o.z, ry: o.ry, anim: o.anim, emote: o.emote, mode, tp: o.tp, vc: o.vehicleColor };
         });
         p.socket.volatile.emit(EV.players, { t: now, list: out, gone });
       }
@@ -1029,6 +1245,7 @@ export class SessionRuntime {
   /** Dipanggil 1×/detik: timer, kejutan, leaderboard, dashboard. */
   async tickSecond() {
     const now = Date.now();
+    this.tidyVehicles();
     if (this.status === 'berjalan' && this.endsAt && now >= this.endsAt) {
       await this.end();
       return;
@@ -1084,6 +1301,7 @@ export class SessionRuntime {
           scene: p?.scene ?? null,
           zone: zone?.id ?? null,
           zoneName: zone?.nama ?? null,
+          mode: p ? MODE_LIMITS[p.riding ? 'penumpang' : p.mode].label : null,
           x: p ? Math.round(p.x) : null,
           z: p ? Math.round(p.z) : null,
           poin: s.score,

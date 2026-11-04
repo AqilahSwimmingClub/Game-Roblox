@@ -4,7 +4,9 @@ import { config } from '../config.js';
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
   max: Number(process.env.PG_POOL_MAX ?? 20),
-  ssl: process.env.PGSSL === '1' ? { rejectUnauthorized: process.env.PGSSL_STRICT !== '0' } : undefined,
+  // Supabase/managed PostgreSQL: PGSSL=1. Sertifikat diverifikasi bila PGSSL_CA (isi PEM, mis. "Supabase root CA")
+  // diberikan; PGSSL_STRICT=0 = terenkripsi tanpa verifikasi rantai (hanya bila CA belum dipasang).
+  ssl: process.env.PGSSL === '1' ? { rejectUnauthorized: process.env.PGSSL_STRICT !== '0', ...(process.env.PGSSL_CA ? { ca: process.env.PGSSL_CA.replace(/\\n/g, '\n') } : {}) } : undefined,
 });
 
 export async function query<T extends pg.QueryResultRow = pg.QueryResultRow>(text: string, params: unknown[] = []): Promise<pg.QueryResult<T>> {

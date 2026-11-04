@@ -145,6 +145,23 @@ export function attachSockets(io: Server, registry: RuntimeRegistry, opts: { tru
       ackOf(ack)(rt.useLift(socket, (raw as { liftId?: unknown } | null)?.liftId));
     });
 
+    socket.on(EV.vehicleEnter, (raw: unknown, ack: unknown) => {
+      if (!rt) return ackOf(ack)({ ok: false, error: 'Belum bergabung.' });
+      ackOf(ack)(rt.enterVehicle(socket, (raw as { id?: unknown } | null)?.id));
+    });
+    socket.on(EV.vehicleExit, (raw: unknown, ack: unknown) => {
+      if (!rt) return ackOf(ack)({ ok: false, error: 'Belum bergabung.' });
+      ackOf(ack)(rt.exitVehicle(socket, raw));
+    });
+    socket.on(EV.jetpack, (raw: unknown, ack: unknown) => {
+      if (!rt) return ackOf(ack)({ ok: false, error: 'Belum bergabung.' });
+      ackOf(ack)(rt.setJetpack(socket, raw));
+    });
+    socket.on(EV.riftUse, (raw: unknown, ack: unknown) => {
+      if (!rt) return ackOf(ack)({ ok: false, error: 'Belum bergabung.' });
+      ackOf(ack)(rt.useRift(socket, (raw as { riftId?: unknown } | null)?.riftId));
+    });
+
     socket.on('disconnect', () => rt?.detach(socket));
   });
 

@@ -64,6 +64,24 @@ export interface RemotePlayer {
   ry: number;
   anim: number; // 0 diam, 1 jalan, 2 lari, 3 lompat/jatuh, 4 renang, 5 duduk
   emote: number; // -1 tidak ada
+  mode: number; // MODE_CODE (0 jalan, 2 sepeda, 3 motor, 4 mobil, 5 bus, 6 pesawat, 7 jetpack, 1 penumpang)
+  tp: number; // bertambah setiap teleport (lift/lubang dimensi/koreksi) → klien tidak menginterpolasi lompatan
+  vc: number; // warna kendaraan yang dikendarai
+}
+
+/** Snapshot ringkas: [id, x, y, z, ry, anim, emote, mode, tp, vc]. */
+export type CompactPlayer = [string, number, number, number, number, number, number, number, number, number];
+
+/** Status kendaraan yang bisa dikendarai (parkir / sedang dipakai) — dikirim saat berubah saja. */
+export interface VehicleStateMsg {
+  id: string;
+  kind: string;
+  x: number;
+  y: number;
+  z: number;
+  heading: number;
+  color: number;
+  driver: string | null; // socket id pengemudi
 }
 
 export interface PlayerStateMsg {
@@ -74,6 +92,11 @@ export interface PlayerStateMsg {
   ry: number;
   anim: number;
   riding: boolean;
+  /** Info saja (server memakai mode yang ia catat sendiri). */
+  mode?: number;
+  /** Untuk pesawat: kemiringan badan (radian), hanya visual. */
+  pitch?: number;
+  roll?: number;
 }
 
 export interface ActivePoint {
@@ -164,6 +187,10 @@ export const EV = {
   closeQuestion: 'question:close',
   emote: 'emote',
   useLift: 'lift:use', // {liftId} → ack
+  vehicleEnter: 'vehicle:enter', // {id} → ack {ok, vehicle}
+  vehicleExit: 'vehicle:exit', // {x, y, z} → ack {ok, x, y, z}
+  jetpack: 'jetpack:set', // {on, stationId?} → ack
+  riftUse: 'rift:use', // {riftId} → ack {ok, target, nama}
   // server → klien siswa
   session: 'session:state',
   roster: 'roster',
@@ -177,6 +204,7 @@ export const EV = {
   notify: 'notify',
   countdown: 'countdown',
   teleport: 'teleport',
+  vehicles: 'vehicles:state', // VehicleStateMsg[] (penuh) saat masuk dunia & setiap perubahan
   ended: 'game:ended',
   podium: 'podium:show',
   kicked: 'kicked',
