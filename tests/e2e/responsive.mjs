@@ -118,8 +118,14 @@ try {
       const [dx, dy, key] = DIRS[turn++ % DIRS.length];
       if (vp.touch) await touchDrag(Math.round(w * 0.16), Math.round(h * 0.78), dx, dy);
       else {
+        // Tahan tombol sampai karakter bergerak ≥ 3,5 m (maks 8 dtk). Kanvas 1920×1080 di CI dirender perangkat lunak
+        // (beberapa fps) sehingga waktu tempuh tidak bisa dijadikan patokan; yang diuji: keyboard TIDAK terkunci.
         await page.keyboard.down(key);
-        await page.waitForTimeout(2600); // desktop di CI dirender perangkat lunak (fps rendah) → tahan lebih lama
+        for (let t = 0; t < 8000; t += 250) {
+          await page.waitForTimeout(250);
+          const p = (await edu()).pos;
+          if (t >= 1000 && Math.hypot(p.x - p0.x, p.z - p0.z) >= 3.5) break;
+        }
         await page.keyboard.up(key);
       }
       await page.waitForTimeout(250);
