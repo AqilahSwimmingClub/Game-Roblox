@@ -9,6 +9,7 @@ import { Mobility, type MobilityHost, type MobilityPrompt } from './world/living
 import { localMission, localMissionDialog } from './world/living/missions.js';
 import { notify } from './ui/dom.js';
 import { WalletStore } from './world/living/inventory.js';
+import { OfferStore } from './world/living/offers.js';
 import { showMap } from './ui/play.js';
 import { Engine } from './engine/engine.js';
 import { Input } from './engine/input.js';
@@ -181,7 +182,7 @@ const demoHost: MobilityHost = {
     return { ok: true, total: chk.total, sisa: chk.sisa, saldo: wallet.saldo, tas: wallet.tas };
   },
   // Mode Demo tidak punya pemain lain → memberi barang dijelaskan dengan jujur
-  giving: { friends: () => [], give: async () => ({ ok: false, error: 'Tidak ada teman di Mode Demo.' }), unavailable: 'Mode Demo tidak punya pemain lain. Memberi barang ke teman tersedia di mode kelas (bermain bersama dengan kode kelas).' },
+  offers: { store: new OfferStore(null), api: null, unavailable: 'Mode Demo tidak punya pemain lain. Memberi & menukar barang (dengan TERIMA/TOLAK dari teman) tersedia di mode kelas.' },
   async useItem(itemId) {
     const it = CATALOG[itemId];
     if (!it || !(wallet.tas[itemId]! > 0)) return { ok: false, error: 'Barang ini tidak ada di tasmu.' };

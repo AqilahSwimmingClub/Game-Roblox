@@ -5,7 +5,7 @@
  */
 import { io, type Socket } from 'socket.io-client';
 import QRCode from 'qrcode';
-import { EV, KOTA_WORLD_HALF, KOTA_ZONES, WORLDS, CHARACTERS, type SessionPublicState, type AvatarConfig } from '@eduverse/shared';
+import { EV, KOTA_WORLD_HALF, KOTA_ZONES, WORLDS, CHARACTERS, CATALOG, OFFER_STATUS_LABEL, type OfferStatus, type SessionPublicState, type AvatarConfig } from '@eduverse/shared';
 import { h, api, btn, toast, onLeave, fmtDate, modal, download, getToken } from '../lib.js';
 import { SERVER_URL } from '../server.js';
 
@@ -321,6 +321,83 @@ export async function liveView(id: string): Promise<HTMLElement> {
     ));
   }
 
+  // ---------- interaksi siswa: hadiah & tukar barang (ON/OFF kapan saja) + riwayat ----------
+  const switchEl = (key: 'allowGifts' | 'allowTrades', label: string, desc: string) => {
+    const i = h('input', { type: 'checkbox', role: 'switch', 'data-setting': key }) as HTMLInputElement;
+    i.onchange = async () => {
+      i.disabled = true;
+      try {
+        await api(`/sessions/${id}`, { method: 'PATCH', json: { settings: { [key]: i.checked } } });
+        live = { ...live, state: { ...live.state, [key]: i.checked } };
+        toast(`${label}: ${i.checked ? 'AKTIF' : 'NONAKTIF'}`);
+        void loadHistory();
+      } catch (e) {
+        i.checked = !i.checked;
+        toast((e as Error).message, true);
+      } finally {
+        i.disabled = false;
+      }
+    };
+    return { el: h('label', { class: 'check', style: 'align-items:flex-start' }, i, h('span', null, h('b', null, label), h('div', { class: 'muted', style: 'font-size:13px' }, desc))), i };
+  };
+  const giftSw = switchEl('allowGifts', 'Izinkan siswa memberi barang', 'Penerima harus menekan TERIMA. Bila dimatikan, permintaan yang menunggu dibatalkan dan barang kembali ke pemberi.');
+  const tradeSw = switchEl('allowTrades', 'Izinkan siswa tukar barang', 'Kedua siswa harus setuju. Uang virtual tidak pernah bisa dipindahkan antarsiswa.');
+  const histEl = h('div', { class: 'tablewrap', style: 'max-height:340px;overflow:auto' });
+  function renderInteraksi() {
+    if (document.activeElement !== giftSw.i) giftSw.i.checked = live.state.allowGifts !== false;
+    if (document.activeElement !== tradeSw.i) tradeSw.i.checked = live.state.allowTrades !== false;
+  }
+  interface OfferRow {
+    kind: string;
+    status: OfferStatus;
+    dari: string;
+    dari_absen: number;
+    ke: string;
+    ke_absen: number;
+    give_item: string;
+    give_qty: number;
+    want_item: string | null;
+    want_qty: number | null;
+    reason: string | null;
+    created_at: string;
+  }
+  const itemTxt = (id: string | null, q: number | null) => (id ? `${CATALOG[id]?.ikon ?? ''} ${CATALOG[id]?.nama ?? id} ×${q ?? 1}` : '');
+  async function loadHistory() {
+    try {
+      const r = await api<{ offers: OfferRow[] }>(`/sessions/${id}/offers`);
+      histEl.replaceChildren(
+        r.offers.length
+          ? h(
+              'table',
+              { class: 'riwayat-hadiah' },
+              h('thead', null, h('tr', null, ...['Waktu', 'Jenis', 'Pemberi', 'Penerima', 'Barang', 'Status'].map((t) => h('th', null, t)))),
+              h(
+                'tbody',
+                null,
+                ...r.offers.map((o) =>
+                  h(
+                    'tr',
+                    null,
+                    h('td', null, new Date(o.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })),
+                    h('td', null, o.kind === 'tukar' ? '🔁 Tukar' : '🎁 Hadiah'),
+                    h('td', null, `${o.dari} (${o.dari_absen})`),
+                    h('td', null, `${o.ke} (${o.ke_absen})`),
+                    h('td', null, itemTxt(o.give_item, o.give_qty) + (o.want_item ? ` ⇄ ${itemTxt(o.want_item, o.want_qty)}` : '')),
+                    h('td', null, h('span', { class: `chip ${o.status === 'diterima' ? 'hijau' : o.status === 'menunggu' ? 'abu' : 'oranye'}` }, OFFER_STATUS_LABEL[o.status] ?? o.status), o.reason ? h('div', { class: 'muted', style: 'font-size:12px' }, o.reason) : null),
+                  ),
+                ),
+              ),
+            )
+          : h('p', { class: 'muted' }, 'Belum ada hadiah atau tukar barang di sesi ini.'),
+      );
+    } catch {
+      /* dicoba lagi pada siklus berikutnya */
+    }
+  }
+  void loadHistory();
+  const histTimer = setInterval(() => void loadHistory(), 5000);
+  onLeave(() => clearInterval(histTimer));
+
   let lastStatus = live.state.status;
   function apply(next: LiveData) {
     live = next;
@@ -330,6 +407,7 @@ export async function liveView(id: string): Promise<HTMLElement> {
     renderStudents();
     renderLeaderboard();
     renderHeat();
+    renderInteraksi();
     tick();
     if (live.state.status !== lastStatus || (live.state.status === 'selesai' && !resultsEl.childElementCount)) void renderResults().catch(() => undefined);
     lastStatus = live.state.status;
@@ -416,5 +494,6 @@ export async function liveView(id: string): Promise<HTMLElement> {
     ),
     h('div', { class: 'card col' }, h('h2', null, 'Siswa'), h('div', { class: 'tablewrap' }, h('table', null, h('thead', null, h('tr', null, ...['Absen', 'Nama', 'Status', 'Lokasi', 'Poin', 'Uang · Tas', 'Karakter', 'Jawaban', 'Progres', 'Peringkat', 'Aksi'].map((t) => h('th', null, t)))), studentsBody))),
     h('div', { class: 'card col' }, h('h2', null, 'Umpan Jawaban Langsung'), feedEl),
+    h('div', { class: 'card col' }, h('h2', null, 'Interaksi Siswa — Hadiah & Tukar Barang'), h('div', { class: 'row wrap', style: 'gap:18px' }, giftSw.el, tradeSw.el), h('h3', { style: 'margin:6px 0 0' }, 'Riwayat'), histEl),
   );
 }

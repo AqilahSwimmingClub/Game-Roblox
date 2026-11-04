@@ -6,7 +6,7 @@
  */
 import { io, type Socket } from 'socket.io-client';
 import { SERVER_URL, SERVER_LABEL } from './server.js';
-import { EV, type WalletMsg, type VehicleStateMsg, type AnswerPayload, type AvatarConfig, type SceneId, type SessionPublicState, type RosterEntry, type PublicQuestion, type AnswerResultMsg, type ActivePoint } from '@eduverse/shared';
+import { EV, type ItemOffer, type ItemLine, type OfferKind, type Bag, type WalletMsg, type VehicleStateMsg, type AnswerPayload, type AvatarConfig, type SceneId, type SessionPublicState, type RosterEntry, type PublicQuestion, type AnswerResultMsg, type ActivePoint } from '@eduverse/shared';
 
 export interface Me {
   absen: number;
@@ -147,7 +147,7 @@ export class NetClient {
   }
 
   enter(scene: SceneId) {
-    return this.call<{ ok: true; spawn: { x: number; y: number; z: number }; points?: ActivePoint[]; done?: string[]; vehicles?: VehicleStateMsg[]; jetpack?: boolean; dompet?: WalletMsg }>(EV.enterWorld, { scene });
+    return this.call<{ ok: true; spawn: { x: number; y: number; z: number }; points?: ActivePoint[]; done?: string[]; vehicles?: VehicleStateMsg[]; jetpack?: boolean; dompet?: WalletMsg; offers?: ItemOffer[] }>(EV.enterWorld, { scene });
   }
 
   enterVehicle(id: string) {
@@ -172,6 +172,22 @@ export class NetClient {
 
   give(toId: string, itemId: string, qty: number) {
     return this.call<{ ok: true; ke: string; itemId: string; qty: number } & WalletMsg>(EV.give, { toId, itemId, qty });
+  }
+
+  createOffer(kind: OfferKind, toId: string, give: ItemLine, want: ItemLine | null) {
+    return this.call<{ ok: true; offer: ItemOffer } & WalletMsg>(EV.offerCreate, { kind, toId, give, want });
+  }
+
+  respondOffer(id: string, accept: boolean) {
+    return this.call<{ ok: true; offer: ItemOffer } & WalletMsg>(EV.offerRespond, { id, accept });
+  }
+
+  cancelOffer(id: string) {
+    return this.call<{ ok: true; offer: ItemOffer } & WalletMsg>(EV.offerCancel, { id });
+  }
+
+  peekBag(toId: string) {
+    return this.call<{ ok: true; nama: string; tas: Bag }>(EV.offerPeek, { toId });
   }
 
   useRift(riftId: string) {

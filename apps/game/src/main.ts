@@ -5,7 +5,7 @@
  */
 import './ui/styles.css';
 import * as THREE from 'three';
-import { EV, LIMITS, WORLDS, SHOP, CATALOG, buildKota, buildLobby, DEFAULT_AVATAR, type WalletMsg, type VehicleStateMsg, type Vendor, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
+import { EV, LIMITS, WORLDS, SHOP, CATALOG, buildKota, buildLobby, DEFAULT_AVATAR, type ItemOffer, type WalletMsg, type VehicleStateMsg, type Vendor, type ActivePoint, type AvatarConfig, type FinalResultMsg, type LeaderboardRow, type PodiumEntry, type RosterEntry, type SceneId, type SessionPublicState, type WorldId } from '@eduverse/shared';
 import { Engine } from './engine/engine.js';
 import { Input } from './engine/input.js';
 import { FollowCamera } from './engine/camera.js';
@@ -21,6 +21,7 @@ import { Hud, WaitingRoom } from './ui/hud.js';
 import { showQuestion, showFinal, podiumBanner, countdown, showMap, blocker } from './ui/play.js';
 import { Mobility, type MobilityHost, type MobilityPrompt } from './world/living/mobility.js';
 import { WalletStore } from './world/living/inventory.js';
+import { OfferStore, type OfferApi } from './world/living/offers.js';
 
 // ───────────────────────── inisialisasi ─────────────────────────
 const canvas = document.getElementById('scene') as HTMLCanvasElement;
@@ -137,6 +138,7 @@ async function goScene(scene: SceneId): Promise<boolean> {
     if (r.vehicles && stage!.living) stage!.living.parked.setStates(r.vehicles);
     if (mobility) mobility.hasJetpack = !!r.jetpack;
     wallet.set(r.dompet);
+    offerStore.apply(r.offers);
     player.frozen = false;
     player.teleport(r.spawn.x, r.spawn.y, r.spawn.z, 0);
     stage!.view?.update(r.spawn.x, r.spawn.z, engine.clock.t, true);
@@ -197,6 +199,33 @@ function isMobilityPrompt(p: Prompt | MobilityPrompt): p is MobilityPrompt {
 }
 
 const wallet = new WalletStore();
+/** Hadiah & tukar barang: semua keputusan di server; klien hanya menampilkan & mengirim jawaban. */
+const offerApi: OfferApi = {
+  // jarak sedikit lebih kecil dari batas server (6 m) karena posisi pemain lain diinterpolasi
+  friends: () => (player ? remote.near(player.body.x, player.body.z, SHOP.jarakBeri - 0.5) : []),
+  create: async (kind, toId, give, want) => {
+    const r = await net.createOffer(kind, toId, give, want);
+    if (r.ok) {
+      wallet.set(r);
+      offerStore.apply([r.offer]);
+    }
+    return r;
+  },
+  respond: async (id, accept) => {
+    const r = await net.respondOffer(id, accept);
+    if (r.ok) wallet.set(r);
+    return r;
+  },
+  cancel: async (id) => {
+    const r = await net.cancelOffer(id);
+    if (r.ok) wallet.set(r);
+    return r;
+  },
+  peek: (toId) => net.peekBag(toId),
+  allowGifts: () => session?.allowGifts !== false,
+  allowTrades: () => session?.allowTrades !== false,
+};
+const offerStore = new OfferStore(offerApi);
 /** Mode kelas: semua perubahan kendaraan/jetpack/portal/jual beli divalidasi server. */
 const mobilityHost: MobilityHost = {
   wallet,
@@ -210,15 +239,7 @@ const mobilityHost: MobilityHost = {
     if (r.ok) wallet.set(r);
     return r;
   },
-  giving: {
-    // jarak sedikit lebih kecil dari batas server (6 m) karena posisi pemain lain diinterpolasi
-    friends: () => (player ? remote.near(player.body.x, player.body.z, SHOP.jarakBeri - 0.5) : []),
-    give: async (toId, itemId, qty) => {
-      const r = await net.give(toId, itemId, qty);
-      if (r.ok) wallet.set(r);
-      return r;
-    },
-  },
+  offers: { store: offerStore, api: offerApi },
   enterVehicle: (id) => net.enterVehicle(id),
   exitVehicle: (p) => net.exitVehicle(p),
   setJetpack: (on, st) => net.setJetpack(on, st),
@@ -337,12 +358,13 @@ net.on<LeaderboardRow[]>(EV.leaderboard, (rows) => hud.setLeaderboard(rows));
 net.on<{ text: string; kind?: string }>(EV.notify, (m) => notify(m.text, m.kind ?? 'info'));
 net.on<VehicleStateMsg[]>(EV.vehicles, (list) => stage?.living?.parked.setStates(list));
 net.on<WalletMsg>(EV.wallet, (w) => wallet.set(w));
+net.on<ItemOffer[]>(EV.offers, (list) => offerStore.apply(list));
 net.on<{ dari: string; itemId: string; qty: number }>(EV.gift, (g) => {
   const it = CATALOG[g.itemId];
   if (!it) return;
   giftsReceived++;
   wallet.addGift({ dari: g.dari, itemId: g.itemId, qty: g.qty });
-  notify(`🎁 ${g.dari} memberimu ${it.ikon} ${it.nama} ×${g.qty}! Ucapkan terima kasih ya.`, 'sukses');
+  // teks pemberitahuan sudah ditampilkan alur TERIMA/TOLAK; di sini cukup tanda yang bertahan (lencana 🎁 + riwayat) & kilau
   if (player) effects.sparkle(new THREE.Vector3(player.body.x, player.body.y + 2, player.body.z));
 });
 let giftsReceived = 0;
@@ -447,6 +469,8 @@ net.onReconnect(async () => {
       if (res.vehicles) stage.living?.parked.setStates(res.vehicles);
       if (mobility) mobility.hasJetpack = !!res.jetpack;
       wallet.set(res.dompet);
+      offerStore.clearAll();
+      offerStore.apply(res.offers);
     }
   }
 });
@@ -558,7 +582,7 @@ if (debug) {
     action: () => void doAction(),
     control: (c: Record<string, boolean>) => mobility?.setControl(c),
     /** Uji keamanan (mode ?debug=1): kirim permintaan mentah — server tetap memvalidasi semuanya. */
-    raw: { enterVehicle: (id: string) => net.enterVehicle(id), useRift: (id: string) => net.useRift(id), setJetpack: (on: boolean, st?: string) => net.setJetpack(on, st), buy: (v: string, i: string, q: number) => mobilityHost.buy(v, i, q), useItem: (i: string) => mobilityHost.useItem(i), give: (to: string, i: string, q: number) => mobilityHost.giving!.give(to, i, q) },
+    raw: { enterVehicle: (id: string) => net.enterVehicle(id), useRift: (id: string) => net.useRift(id), setJetpack: (on: boolean, st?: string) => net.setJetpack(on, st), buy: (v: string, i: string, q: number) => mobilityHost.buy(v, i, q), useItem: (i: string) => mobilityHost.useItem(i), give: (to: string, i: string, q: number) => offerApi.create('hadiah', to, { itemId: i, qty: q }, null), respond: (id: string, a: boolean) => offerApi.respond(id, a), cancel: (id: string) => offerApi.cancel(id) },
     friends: (r = 50) => (player ? remote.near(player.body.x, player.body.z, r) : []),
     vendors: () => stage?.living?.layout.vendors.map((v) => ({ id: v.id, x: v.x, z: v.z })) ?? [],
   };
@@ -586,6 +610,7 @@ function exposeState() {
     myId: net.socket.id ?? null,
     remoteModes: remote.modes(),
     giftsReceived,
+    offers: { pending: [...offerStore.pending.values()].map((o) => ({ id: o.id, kind: o.kind, dari: o.dari.nama, ke: o.ke.nama, give: o.give, want: o.want, status: o.status })), ...offerStore.stats },
     vehicles: stage?.living?.parked.all().map((v) => ({ id: v.id, driver: v.driver ? 'ya' : null, x: Math.round(v.x), z: Math.round(v.z) })) ?? [],
   };
 }
@@ -647,6 +672,7 @@ async function boot() {
   }
   avatarCfg = me.avatar ?? avatarCfg;
   wallet.set(me.dompet);
+  offerStore.myAbsen = me.absen;
   hud.setProfile(me.nama, me.absen);
   lastScore = { poin: me.poin ?? 0, rank: null, total: 0, dijawab: me.dijawab ?? 0 };
   hud.setScore(lastScore.poin, null, 0);

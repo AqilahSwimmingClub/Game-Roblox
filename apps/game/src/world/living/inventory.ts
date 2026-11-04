@@ -5,20 +5,15 @@
 import { CATALOG, SHOP, bagCount, formatRp, isConsumable, type Bag, type ShopItem, type WalletMsg } from '@eduverse/shared';
 import { h, btn, ui } from '../../ui/dom.js';
 import { sfx, sfxLiving } from '../audio.js';
+import { offerSection, sendFlow, type OfferApi, type OfferStore } from './offers.js';
 
 type Fail = { ok: false; error: string; kurang?: number };
 export type BuyResult = ({ ok: true; total: number; sisa: number } & WalletMsg) | Fail;
 export type UseResult = ({ ok: true; itemId: string } & WalletMsg) | Fail;
-export type GiveResult = ({ ok: true; ke: string; itemId: string; qty: number } & WalletMsg) | Fail;
-export interface Friend {
-  id: string;
-  nama: string;
-  d: number;
-}
-/** Memberi barang ke teman (null = tidak tersedia, mis. Mode Demo tanpa pemain lain). */
-export interface GiveOptions {
-  friends: () => Friend[];
-  give: (toId: string, itemId: string, qty: number) => Promise<GiveResult>;
+/** Konteks hadiah/tukar untuk Tas (null = tidak tersedia). */
+export interface OfferCtx {
+  store: OfferStore;
+  api: OfferApi | null;
   unavailable?: string;
 }
 
@@ -119,52 +114,24 @@ export function shopPanel(items: ShopItem[], store: WalletStore, buy: (itemId: s
 let bagEl: HTMLElement | null = null;
 
 /** Panel Tas: isi tas, PAKAI untuk makanan/minuman/buah (energi jetpack penuh). */
-export function openBag(store: WalletStore, use: (itemId: string) => Promise<UseResult>, onUsed: (itemId: string) => void, onClose: () => void, giveOpt: GiveOptions | null = null) {
+export function openBag(store: WalletStore, use: (itemId: string) => Promise<UseResult>, onUsed: (itemId: string) => void, onClose: () => void, offer: OfferCtx | null = null) {
   bagEl?.remove();
   const list = h('div', { class: 'col', style: 'gap:6px' });
   const saldoEl = h('b');
   const msg = h('div', { style: 'font-weight:800;min-height:20px' });
   const picker = h('div', { class: 'col', style: 'gap:6px' });
-  /** Pilih teman di dekatmu untuk menerima 1 barang. */
-  const showPicker = (id: string) => {
-    const it = CATALOG[id]!;
-    if (!giveOpt || giveOpt.unavailable) {
-      picker.replaceChildren(h('div', { class: 'muted', style: 'font-weight:800' }, giveOpt?.unavailable ?? 'Memberi barang tidak tersedia di sini.'));
-      return;
-    }
-    const fr = giveOpt.friends();
-    if (!fr.length) {
-      picker.replaceChildren(h('div', { class: 'muted', style: 'font-weight:800' }, `Tidak ada teman di dekatmu. Dekati temanmu (paling jauh ${SHOP.jarakBeri} m) untuk memberi ${it.ikon} ${it.nama}.`));
-      return;
-    }
-    picker.replaceChildren(
-      h('div', { style: 'font-weight:900' }, `Beri ${it.ikon} ${it.nama} ke siapa?`),
-      h(
-        'div',
-        { class: 'row wrap', style: 'gap:6px' },
-        ...fr.map((f) =>
-          btn(`🎁 ${f.nama}`, 'ungu kecil', async () => {
-            const r = await giveOpt.give(f.id, id, 1);
-            picker.replaceChildren();
-            if (!r.ok) {
-              msg.style.color = '#C2410C';
-              msg.textContent = r.error;
-              sfx.retry();
-              return;
-            }
-            msg.style.color = '#15803D';
-            msg.textContent = `${it.ikon} ${it.nama} sudah diberikan ke ${r.ke}. Baik sekali kamu berbagi!`;
-            sfx.correct();
-            render();
-          }),
-        ),
-        btn('Batal', 'putih kecil', () => picker.replaceChildren()),
-      ),
-    );
+  const flowDone = (text: string, ok: boolean) => {
+    msg.style.color = ok ? '#15803D' : '#C2410C';
+    msg.textContent = text;
+    if (ok) sfx.correct();
+    else sfx.retry();
+    render();
   };
+  const offersEl = h('div', { class: 'col', style: 'gap:6px' });
   const giftsEl = h('div', { class: 'col', style: 'gap:4px' });
   const render = () => {
     saldoEl.textContent = formatRp(store.saldo);
+    offersEl.replaceChildren(offer ? offerSection(offer.store, offer.api, render) : '');
     giftsEl.replaceChildren(
       ...(store.gifts.length
         ? [
@@ -190,7 +157,8 @@ export function openBag(store: WalletStore, use: (itemId: string) => Promise<Use
           { class: 'row', style: 'align-items:center;gap:8px;background:#fff;border-radius:12px;padding:6px 10px;font-weight:800' },
           h('span', { style: 'font-size:24px' }, it.ikon),
           h('span', { class: 'grow' }, `${it.nama} ×${store.tas[id]}`),
-          btn('BERI', 'ungu kecil', () => showPicker(id), { style: 'min-height:40px', 'aria-label': `Beri ${it.nama}` }),
+          btn('BERI', 'ungu kecil', () => sendFlow('hadiah', id, store.tas[id] ?? 0, offer?.api ?? null, picker, flowDone, offer?.unavailable), { style: 'min-height:40px', 'aria-label': `Beri ${it.nama}` }),
+          btn('TUKAR', 'biru kecil', () => sendFlow('tukar', id, store.tas[id] ?? 0, offer?.api ?? null, picker, flowDone, offer?.unavailable), { style: 'min-height:40px', 'aria-label': `Tukar ${it.nama}` }),
           usable
             ? btn('PAKAI', 'oranye kecil', async () => {
                 const r = await use(id);
@@ -210,8 +178,10 @@ export function openBag(store: WalletStore, use: (itemId: string) => Promise<Use
   };
   render();
   const off = store.on(render);
+  const offOffers = offer?.store.on(render);
   const close = () => {
     off();
+    offOffers?.();
     bagEl?.remove();
     bagEl = null;
     document.body.classList.remove('mv-dialog');
@@ -224,11 +194,12 @@ export function openBag(store: WalletStore, use: (itemId: string) => Promise<Use
       'div',
       { class: 'panel card col pop', style: 'max-width:min(520px,94vw);max-height:calc(100dvh - 24px);overflow:auto;gap:8px;padding:14px 18px' },
       h('div', { class: 'row', style: 'justify-content:space-between;align-items:center' }, h('h2', { style: 'margin:0' }, '🎒 Tas'), h('span', { style: 'font-weight:900' }, '👛 ', saldoEl)),
+      offersEl,
       giftsEl,
       list,
       picker,
       msg,
-      h('div', { class: 'muted', style: 'font-weight:700;font-size:12px' }, `Isi tas ${store.count()}/${SHOP.maksIsiTas}. Makanan, minuman & buah mengisi energi jetpack; buku & alat tulis jadi koleksi. BERI: bagikan barang ke teman di dekatmu (uang tidak bisa diberikan).`),
+      h('div', { class: 'muted', style: 'font-weight:700;font-size:12px' }, `Isi tas ${store.count()}/${SHOP.maksIsiTas}. Makanan, minuman & buah mengisi energi jetpack; buku & alat tulis jadi koleksi. BERI/TUKAR: kirim ke teman di dekatmu — teman harus menekan TERIMA (uang tidak bisa diberikan).`),
       btn('Tutup', 'putih', close),
     ),
   );

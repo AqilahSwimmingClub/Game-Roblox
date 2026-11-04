@@ -29,6 +29,8 @@ export function sessionFormView(): HTMLElement {
   const secondChance = check('Kesempatan kedua (poin 50%) bila jawaban belum tepat', s.secondChance);
   const approval = check('Guru menyetujui identitas siswa sebelum bermain', s.requireApproval);
   const showLb = check('Tampilkan papan skor ke siswa selama bermain', s.showLeaderboard);
+  const allowGifts = check('Izinkan siswa memberi barang (penerima harus menekan TERIMA)', s.allowGifts);
+  const allowTrades = check('Izinkan siswa tukar barang (kedua siswa harus setuju)', s.allowTrades);
   const roster = h('textarea', { class: 'in', placeholder: '1 Adit\n2 Bima\n3 Citra\n… (satu siswa per baris: nomor absen lalu nama panggilan)' }) as HTMLTextAreaElement;
   mode.addEventListener('change', () => (count.parentElement!.style.display = mode.value === 'jumlah' ? '' : 'none'));
 
@@ -58,6 +60,8 @@ export function sessionFormView(): HTMLElement {
       density: Number(density.value),
       requireApproval: approval.i.checked,
       showLeaderboard: showLb.i.checked,
+      allowGifts: allowGifts.i.checked,
+      allowTrades: allowTrades.i.checked,
     };
     if (!settings.worlds!.length) return void (err.textContent = 'Aktifkan minimal satu dunia.');
     try {
@@ -81,6 +85,7 @@ export function sessionFormView(): HTMLElement {
       sec('Paket soal', h('div', { style: 'font-weight:800' }, 'Mata pelajaran (kosongkan = semua)'), h('div', { class: 'grid', style: 'grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:4px' }, ...subjectChecks.map((c) => c.el)), h('label', { class: 'f' }, 'Tingkat kelas soal', grade), h('label', { class: 'f' }, 'Mode soal', mode), countWrap),
       sec('Dunia & durasi', ...worldChecks.map((w) => w.el), h('label', { class: 'f' }, 'Durasi (menit)', duration), h('label', { class: 'f' }, 'Kepadatan titik soal', density)),
       sec('Poin & aturan', h('label', { class: 'f' }, 'Poin dasar per soal', base), h('label', { class: 'f' }, 'Mode titik soal', pointMode), allowRepeat.el, secondChance.el, approval.el, showLb.el),
+      sec('Interaksi siswa', allowGifts.el, allowTrades.el, h('p', { class: 'muted', style: 'margin:0;font-size:13px' }, 'Bisa diubah kapan saja dari halaman sesi. Uang virtual tidak pernah bisa dipindahkan antarsiswa.')),
     ),
     h('div', { class: 'card row' }, err, h('div', { class: 'grow' }), btn('Batal', 'putih', () => void (location.hash = '#/')), submit),
   );
